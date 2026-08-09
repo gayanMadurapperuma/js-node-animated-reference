@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JavaScript & Node.js — How they actually work</title>
+<style>
+  :root{
+    --bg:#12161C; --panel:#181D25; --panel2:#1E252F; --line:#2A323E;
+    --text:#E8EAED; --sub:#8B94A3;
+    --js:#F2C879; --jsbg:#2C2413;
+    --node:#4FCB8F; --nodebg:#152A22;
+    --accent:#5B8CFF; --accentbg:#182335;
+    --tick:#F26B6B; --tickbg:#2C1717;
+    --micro:#C58CF2; --microbg:#241A2E;
+    --pool:#5BD6D6; --poolbg:#12292C;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  button{font-family:inherit}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--mono)}
+  a{color:inherit}
+
+  .scanlines{position:fixed;inset:0;pointer-events:none;z-index:50;opacity:.035;
+    background:repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 3px)}
+
+  .term-chrome{background:#0D1013;border-bottom:1px solid var(--line);padding:8px 16px;display:flex;align-items:center;gap:14px;font-size:11.5px}
+  .term-dots{display:flex;gap:6px;flex:none}
+  .term-dots .d{width:10px;height:10px;border-radius:50%;display:block}
+  .term-dots .d.red{background:#F26B6B} .term-dots .d.yellow{background:#F2B84B} .term-dots .d.green{background:#4FCB8F}
+  .term-path{color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .term-path .sep{color:#3A4454}
+  .term-path .cmd{color:var(--node)}
+  .cursor{display:inline-block;width:7px;height:13px;background:var(--node);margin-left:4px;vertical-align:-2px;animation:blink 1s step-end infinite}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+
+  h1 .prompt{color:var(--node);margin-right:6px}
+
+  /* Top nav */
+  .topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);padding:0 20px;display:flex;align-items:center;gap:4px;height:56px}
+  .topbar h1{font-size:14.5px;font-weight:600;margin:0 18px 0 0;white-space:nowrap}
+  .tab{padding:8px 18px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;border:1px solid transparent;color:var(--sub);transition:all .25s}
+  .tab.js.active{background:var(--jsbg);color:var(--js);border-color:#6B551F}
+  .tab.node.active{background:var(--nodebg);color:var(--node);border-color:#2C5C46}
+  .tab:not(.active):hover{color:var(--text)}
+
+  .shell{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:calc(100vh - 56px)}
+  @media (max-width:820px){.shell{grid-template-columns:1fr}}
+
+  /* Sidebar */
+  .sidebar{border-right:1px solid var(--line);padding:18px 10px;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
+  @media (max-width:820px){.sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}}
+  .side-item{display:block;width:100%;text-align:left;background:none;border:none;color:var(--sub);font-family:var(--mono);font-size:13px;padding:9px 12px;border-radius:8px;cursor:pointer;margin-bottom:2px;transition:all .2s}
+  @media (max-width:820px){.side-item{width:auto}}
+  .side-item .n{font-family:var(--mono);font-size:10px;color:var(--sub);opacity:.6;margin-right:6px}
+  .side-item:hover{background:var(--panel2);color:var(--text)}
+  .side-item.active.js{background:var(--jsbg);color:var(--js)}
+  .side-item.active.node{background:var(--nodebg);color:var(--node)}
+
+  /* Main content */
+  main{padding:28px 30px 80px;max-width:760px}
+  @media (max-width:600px){main{padding:22px 16px 60px}}
+  .section{display:none}
+  .section.active{display:block;animation:fade .35s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px}
+  .eyebrow.js{color:var(--js)} .eyebrow.node{color:var(--node)}
+  h2{font-size:22px;font-weight:600;margin:0 0 10px}
+  h2::before{content:'> ';color:var(--node)}
+  .lede{color:var(--sub);font-size:14.5px;line-height:1.65;margin:0 0 22px}
+
+  .visual{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:22px;margin-bottom:22px;display:flex;align-items:center;justify-content:center;min-height:120px}
+
+  h3{font-size:14px;font-weight:600;margin:26px 0 10px;color:var(--text)}
+  p{font-size:14px;line-height:1.7;color:#C9CDD6;margin:0 0 12px}
+  code{background:#0D1013;padding:1.5px 6px;border-radius:5px;font-family:var(--mono);font-size:12.5px;color:#EAD9A0}
+
+  .steps{list-style:none;margin:0;padding:0;counter-reset:step}
+  .steps li{counter-increment:step;position:relative;padding:4px 0 14px 34px;font-size:14px;line-height:1.65;color:#C9CDD6}
+  .steps li::before{content:counter(step);position:absolute;left:0;top:2px;width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--text);font-family:var(--mono);font-size:11px;display:flex;align-items:center;justify-content:center}
+  .steps li b{color:var(--text)}
+
+  pre{background:#0D1013;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin:14px 0}
+  pre code{background:none;padding:0;color:#C6E27C}
+  .kw{color:#7EA6F2}.fn{color:#F2C879}.str{color:#C6E27C}.cm{color:#5F6B7A}
+
+  .callout{border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;margin:16px 0;border:1px solid}
+  .callout.warn{background:#2C2413;border-color:#6B551F;color:#F6D999}
+  .callout.info{background:#182335;border-color:#2E4A82;color:#BFD3FF}
+
+  .term-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+  @media (max-width:520px){.term-grid{grid-template-columns:1fr}}
+  .term{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;transition:border-color .2s}
+  .term[open]{border-color:var(--accent)}
+  .term summary{cursor:pointer;list-style:none;display:flex;flex-direction:column;gap:3px}
+  .term summary::-webkit-details-marker{display:none}
+  .term summary .t-head{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text)}
+  .term summary .t-head::before{content:'▸';color:var(--sub);font-size:10px;transition:transform .2s}
+  .term[open] summary .t-head::before{content:'▾'}
+  .term summary .t-desc{font-size:12px;color:var(--sub);line-height:1.5}
+  .term-expand{padding-top:10px;margin-top:8px;border-top:1px solid var(--line);animation:termReveal .3s ease}
+  .term-expand p{font-size:12.5px;line-height:1.6;color:#C9CDD6;margin:0 0 8px}
+  .term-expand pre{margin:0;font-size:11.5px}
+  @keyframes termReveal{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+
+  .nav-footer{display:flex;justify-content:space-between;margin-top:34px;border-top:1px solid var(--line);padding-top:18px}
+  .nav-footer button{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 15px;border-radius:6px;font-size:13px;cursor:pointer;font-family:var(--mono)}
+  .nav-footer button:not(:disabled)::before{content:'[ ';color:var(--sub)}
+  .nav-footer button:not(:disabled)::after{content:' ]';color:var(--sub)}
+  .nav-footer button:hover{border-color:#3A4454}
+  .nav-footer button:disabled{opacity:.3;cursor:default}
+
+  /* --- animated visuals --- */
+  .stack-anim{display:flex;flex-direction:column-reverse;gap:5px;width:150px}
+  .stack-anim div{height:22px;border-radius:5px;background:var(--accentbg);border:1px solid #2E4A82;animation:stackPulse 2.4s ease-in-out infinite}
+  .stack-anim div:nth-child(2){animation-delay:.3s}
+  .stack-anim div:nth-child(3){animation-delay:.6s}
+  @keyframes stackPulse{0%,100%{opacity:.5;transform:scaleX(.9)}50%{opacity:1;transform:scaleX(1)}}
+
+  .heap-anim{position:relative;width:180px;height:100px}
+  .heap-anim i{position:absolute;border-radius:50%;background:var(--nodebg);border:1px solid #2C5C46;display:block;animation:float 3.2s ease-in-out infinite}
+  .heap-anim i:nth-child(1){width:34px;height:34px;left:10px;top:30px;animation-delay:0s}
+  .heap-anim i:nth-child(2){width:22px;height:22px;left:70px;top:8px;animation-delay:.5s}
+  .heap-anim i:nth-child(3){width:44px;height:44px;left:100px;top:40px;animation-delay:1s}
+  .heap-anim i:nth-child(4){width:18px;height:18px;left:60px;top:70px;animation-delay:1.5s}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+
+  .loop-anim{width:110px;height:110px;border-radius:50%;border:3px solid var(--line);position:relative}
+  .loop-anim::before{content:'';position:absolute;top:-3px;left:-3px;width:100%;height:100%;border-radius:50%;border:3px solid transparent;border-top-color:var(--js);animation:spin 2.6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .chain-anim{display:flex;align-items:center;gap:6px}
+  .chain-anim div{padding:8px 12px;border-radius:7px;background:var(--panel2);border:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--sub);animation:glow 2.4s ease-in-out infinite}
+  .chain-anim div:nth-child(1){animation-delay:0s}
+  .chain-anim div:nth-child(2){animation-delay:.4s}
+  .chain-anim div:nth-child(3){animation-delay:.8s}
+  @keyframes glow{0%,100%{border-color:var(--line);color:var(--sub)}50%{border-color:var(--js);color:var(--js)}}
+
+  .thread-anim{display:flex;gap:8px}
+  .thread-anim div{width:28px;height:44px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);animation:busy 3s ease-in-out infinite}
+  .thread-anim div:nth-child(1){animation-delay:0s}
+  .thread-anim div:nth-child(2){animation-delay:.7s}
+  .thread-anim div:nth-child(3){animation-delay:1.4s}
+  .thread-anim div:nth-child(4){animation-delay:2.1s}
+  @keyframes busy{0%,20%,100%{background:var(--panel2);border-color:var(--line)}10%{background:#12292C;border-color:#5BD6D6}}
+
+  .buf-anim{display:flex;gap:3px}
+  .buf-anim div{width:14px;height:34px;border-radius:3px;background:var(--nodebg);border:1px solid #2C5C46;animation:fill 2s ease-in-out infinite}
+  .buf-anim div:nth-child(odd){animation-delay:.15s}
+  @keyframes fill{0%,100%{opacity:.35}50%{opacity:1}}
+
+  .stream-anim{position:relative;width:200px;height:24px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}
+  .stream-anim i{position:absolute;top:3px;left:-16px;width:16px;height:16px;border-radius:50%;background:var(--node);animation:travel 2.2s linear infinite}
+  .stream-anim i:nth-child(2){animation-delay:.7s}
+  .stream-anim i:nth-child(3){animation-delay:1.4s}
+  @keyframes travel{to{left:calc(100% + 16px)}}
+
+  .thisflip-anim{display:flex;align-items:center;gap:14px}
+  .tf-box{padding:10px 16px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);font-family:var(--mono);font-size:13px;color:var(--sub);animation:tfpulse 2.4s ease-in-out infinite}
+  .tf-box.b{background:var(--jsbg);border-color:#6B551F;color:var(--js);animation-delay:.4s}
+  .tf-arrow{color:var(--sub);font-size:18px;animation:tfarrow 2.4s ease-in-out infinite}
+  @keyframes tfpulse{0%,100%{opacity:.5}50%{opacity:1}}
+  @keyframes tfarrow{0%,100%{transform:translateX(0)}50%{transform:translateX(6px)}}
+
+  .sweep-anim{display:flex;gap:10px}
+  .sweep-anim i{width:26px;height:26px;border-radius:50%;display:block}
+  .sweep-anim i.live{background:var(--nodebg);border:1px solid var(--node);animation:livepulse 2.4s ease-in-out infinite}
+  .sweep-anim i.dead{background:var(--panel2);border:1px solid var(--line);animation:sweepfade 2.4s ease-in-out infinite}
+  @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.6}}
+  @keyframes sweepfade{0%,40%{opacity:.7}60%,100%{opacity:.1}}
+
+  .hoist-anim{position:relative;width:200px;height:110px}
+  .hoist-top{position:absolute;top:0;left:0;right:0;text-align:center;font-family:var(--mono);font-size:10px;color:var(--sub);border-bottom:1px dashed var(--line);padding-bottom:6px}
+  .hoist-chip{position:absolute;left:50%;transform:translateX(-50%);padding:5px 10px;border-radius:6px;font-family:var(--mono);font-size:11px;white-space:nowrap;animation:rise 2.8s ease-in infinite}
+  .hoist-chip.v{background:var(--accentbg);border:1px solid #2E4A82;color:#BFD3FF;bottom:10px;animation-delay:0s}
+  .hoist-chip.f{background:var(--nodebg);border:1px solid #2C5C46;color:#B9EBCE;bottom:10px;animation-delay:1.4s}
+  @keyframes rise{0%{bottom:10px;opacity:0}15%{opacity:1}90%{bottom:80px;opacity:1}100%{bottom:80px;opacity:0}}
+
+  .protochain-anim{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center}
+  .pc-node{padding:6px 9px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-family:var(--mono);font-size:10px;color:var(--sub);animation:pcglow 3.2s ease-in-out infinite}
+  .pc-node.end{color:var(--sub)}
+  .pc-arrow{color:var(--sub);font-size:12px}
+  .protochain-anim .pc-node:nth-child(1){animation-delay:0s}
+  .protochain-anim .pc-node:nth-child(3){animation-delay:.5s}
+  .protochain-anim .pc-node:nth-child(5){animation-delay:1s}
+  .protochain-anim .pc-node:nth-child(7){animation-delay:1.5s}
+  @keyframes pcglow{0%,85%,100%{border-color:var(--line);color:var(--sub)}15%{border-color:var(--accent);color:var(--accent)}}
+
+  .taskqueue-anim{display:flex;flex-direction:column;gap:10px;width:180px}
+  .tq-row{display:flex;align-items:center;gap:6px}
+  .tq-label{font-family:var(--mono);font-size:10px;color:var(--sub);width:40px}
+  .tq-row i{width:12px;height:12px;border-radius:50%;background:var(--microbg);border:1px solid #5A3F73;display:block}
+  .tq-row:last-child i{background:var(--jsbg);border-color:#6B551F}
+  .tq-row:first-child i{animation:tqfast 1.1s ease-in-out infinite}
+  .tq-row:first-child i:nth-child(3){animation-delay:.15s}
+  .tq-row:first-child i:nth-child(4){animation-delay:.3s}
+  .tq-row:last-child i{animation:tqslow 2.6s ease-in-out infinite}
+  @keyframes tqfast{0%,100%{opacity:.3}50%{opacity:1}}
+  @keyframes tqslow{0%,100%{opacity:.3}50%{opacity:1}}
+
+  .enginemerge-anim{position:relative;width:200px;height:70px}
+  .em-box{position:absolute;top:8px;padding:8px 12px;border-radius:6px;font-family:var(--mono);font-size:11px;border:1px solid;animation:emmerge 3s ease-in-out infinite}
+  .em-box.v8{left:0;background:var(--accentbg);border-color:#2E4A82;color:#BFD3FF}
+  .em-box.libuv{right:0;background:var(--nodebg);border-color:#2C5C46;color:#B9EBCE;animation-delay:0s}
+  .em-result{position:absolute;bottom:0;left:50%;transform:translateX(-50%);padding:6px 12px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--sub);opacity:0;animation:emresult 3s ease-in-out infinite}
+  @keyframes emmerge{0%,20%{left:0}45%,55%{left:38%}80%,100%{left:0}}
+  .em-box.libuv{animation-name:emmerge2}
+  @keyframes emmerge2{0%,20%{right:0}45%,55%{right:38%}80%,100%{right:0}}
+  @keyframes emresult{0%,40%{opacity:0}55%,75%{opacity:1}100%{opacity:0}}
+
+  .moduleflow-anim{display:flex;flex-direction:column;gap:14px;width:200px}
+  .mf-row{position:relative;display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--sub);height:20px}
+  .mf-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);position:absolute;left:0}
+  .mf-row.sync .mf-dot{animation:mfsync 1.6s linear infinite}
+  .mf-row.async .mf-dot{background:var(--node);animation:mfasync 2.8s linear infinite}
+  @keyframes mfsync{0%{left:0;opacity:1}90%{left:130px;opacity:1}100%{left:130px;opacity:0}}
+  @keyframes mfasync{0%,20%{left:0;opacity:.4}90%{left:130px;opacity:1}100%{left:130px;opacity:0}}
+
+  .nexttick-anim{position:relative;display:flex;gap:8px;align-items:center;height:40px}
+  .nt-chip{padding:6px 10px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-family:var(--mono);font-size:10px;color:var(--sub)}
+  .nt-chip.priority{background:var(--tickbg);border-color:#6B2E2E;color:#F5B9B9;position:relative;animation:jumpqueue 2.6s ease-in-out infinite}
+  @keyframes jumpqueue{0%,10%{order:3;transform:translateX(0)}50%{order:0;transform:translateX(-4px)}90%,100%{order:0;transform:translateX(0)}}
+  .nexttick-anim{display:flex}
+
+  .clusterproc-anim{display:flex;gap:12px}
+  .cp-proc{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);font-family:var(--mono);font-size:9px;color:var(--sub)}
+  .cp-proc i{width:10px;height:10px;border-radius:50%;background:var(--pool);display:block;animation:cppulse 2.4s ease-in-out infinite}
+  .cp-proc:nth-child(1) i{animation-delay:0s}
+  .cp-proc:nth-child(2) i{animation-delay:.6s}
+  .cp-proc:nth-child(3) i{animation-delay:1.2s}
+  @keyframes cppulse{0%,100%{opacity:.3}50%{opacity:1}}
+
+  .nonblock-anim{width:200px}
+  .nb-pipe{position:relative;height:24px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);overflow:hidden}
+  .nb-pipe i{position:absolute;top:3px;left:-16px;width:16px;height:16px;border-radius:50%;background:var(--accent);animation:nbflow 1.8s linear infinite}
+  .nb-pipe i:nth-child(2){animation-delay:.4s}
+  .nb-pipe i:nth-child(3){animation-delay:.8s}
+  @keyframes nbflow{to{left:calc(100% + 16px)}}
+
+  /* --- badge for demo items in sidebar --- */
+  .side-item .play-badge{display:inline-block;margin-left:6px;font-size:9px;padding:1px 6px;border-radius:10px;background:var(--accentbg);color:var(--accent);vertical-align:middle}
+
+  /* --- demo player --- */
+  .dp-layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px}
+  @media (max-width:700px){.dp-layout{grid-template-columns:1fr}}
+  .dp-code{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 0;font-family:var(--mono);font-size:11.5px;line-height:1.8;height:fit-content;position:sticky;top:70px;min-width:0;max-width:260px;overflow-x:auto}
+  @media (max-width:700px){.dp-code{position:static;max-width:100%}}
+  .dp-code-line{padding:1px 12px;white-space:pre;color:#7D8798;transition:background .3s,color .3s;width:max-content;min-width:100%}
+  .dp-code-line.active{background:#26313F;color:#EAF1FF;border-left:2px solid var(--accent)}
+
+  .dp-ring{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+  .dp-phase{flex:1;min-width:78px;text-align:center;font-family:var(--mono);font-size:10px;padding:7px 3px;border-radius:7px;border:1px solid var(--line);color:var(--sub);transition:all .3s;font-weight:600}
+  .dp-phase.on{color:#0D1013;border-color:transparent;transform:scale(1.03)}
+
+  .dp-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  .dp-row.three{grid-template-columns:1fr 1fr 1fr}
+  @media (max-width:560px){.dp-row,.dp-row.three{grid-template-columns:1fr}}
+  .dp-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:70px}
+  .dp-card h4{margin:0 0 7px;font-size:10.5px;font-weight:600;letter-spacing:.2px;text-transform:uppercase;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--sub)}
+  .dp-dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .dp-items{display:flex;flex-direction:column;gap:5px}
+
+  .dp-frame{border-radius:6px;padding:6px 9px;font-family:var(--mono);font-size:11px;animation:dpop .3s ease;border:1px solid;display:flex;justify-content:space-between;gap:6px}
+  @keyframes dpop{from{opacity:0;transform:translateY(6px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .dp-frame.stack{background:var(--accentbg);border-color:#2E4A82;color:#BFD3FF}
+  .dp-frame.heap{background:var(--nodebg);border-color:#2C5C46;color:#B9EBCE}
+  .dp-frame.tick{background:var(--tickbg);border-color:#6B2E2E;color:#F5B9B9}
+  .dp-frame.micro{background:var(--microbg);border-color:#5A3F73;color:#E2C9F5}
+  .dp-frame.macro{background:var(--jsbg);border-color:#6B551F;color:#F6D999}
+  .dp-frame.pool{background:var(--poolbg);border-color:#2C6666;color:#B9EBEB}
+  .dp-frame .ref{color:var(--sub);font-size:9.5px}
+  .dp-empty{color:var(--sub);font-size:10px;font-family:var(--mono);opacity:.6}
+
+  .dp-workers{display:flex;gap:5px;margin-bottom:6px}
+  .dp-worker{flex:1;text-align:center;font-family:var(--mono);font-size:9px;padding:5px 2px;border-radius:5px;border:1px solid var(--line);color:var(--sub);transition:all .3s}
+  .dp-worker.busy{background:var(--poolbg);border-color:var(--pool);color:var(--pool)}
+
+  .dp-console{background:#0D1013;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-family:var(--mono);font-size:11.5px;margin:10px 0;min-height:40px}
+  .dp-console .r{color:var(--sub);margin-bottom:2px}
+  .dp-console .r span{color:#8EF2B0}
+  .dp-console .r.new{animation:dpop .3s ease}
+
+  .dp-note{font-size:13.5px;line-height:1.6;color:#C9CDD6;min-height:50px;margin-top:2px}
+  .dp-note b{color:var(--text)} .dp-note code{background:#0D1013;padding:1px 5px;border-radius:4px;font-size:12px}
+
+  .dp-progress{height:3px;background:var(--line);border-radius:2px;margin-top:10px;overflow:hidden}
+  .dp-progress-fill{height:100%;background:var(--accent);transition:width .3s ease}
+  .dp-controls{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .dp-controls button{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 13px;border-radius:8px;font-size:12.5px;cursor:pointer;font-family:var(--mono)}
+  .dp-controls button:hover{border-color:#3A4454}
+  .dp-controls button.primary{background:var(--accent);border-color:var(--accent);color:#0D1013;font-weight:600}
+  .dp-controls button:disabled{opacity:.35;cursor:default}
+  .dp-step-count{color:var(--sub);font-size:11.5px;font-family:var(--mono);margin-left:auto}
+  .dp-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:var(--sub);margin-top:10px;font-family:var(--mono)}
+  .dp-legend span{display:flex;align-items:center;gap:5px}
+  .dp-legend i{width:7px;height:7px;border-radius:50%;display:inline-block}
+
+  .scenario-picker{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .scenario-chip{font-family:var(--mono);font-size:12px;padding:8px 13px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);cursor:pointer;transition:all .2s}
+  .scenario-chip:hover{border-color:#3A4454;color:var(--text)}
+  .scenario-chip.active{background:var(--accentbg);border-color:var(--accent);color:var(--accent);font-weight:600}
+
+  /* --- tricky questions quiz --- */
+  /* (unused quiz styling removed) */
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+<div class="term-chrome">
+  <div class="term-dots"><span class="d red"></span><span class="d yellow"></span><span class="d green"></span></div>
+  <div class="term-path">guest@interview-prep <span class="sep">~</span> <span class="cmd">./js-node-reference.sh</span><span class="cursor"></span></div>
+</div>
+
+<div class="topbar">
+  <h1><span class="prompt">$</span> JS vs Node — theory reference</h1>
+  <div class="tab js active" id="tabJS">JavaScript engine</div>
+  <div class="tab node" id="tabNode">Node.js runtime</div>
+</div>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main>
+    <div id="sections"></div>
+    <div class="nav-footer">
+      <button id="prevSec">← Previous topic</button>
+      <button id="nextSec">Next topic →</button>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ---------- content data ---------- */
+const jsTopics = [
+{ id:'exec', title:'Execution context & call stack', animate:'stack',
+  lede:"Every time JS runs code, it does so inside an execution context — a box holding variables, scope, and 'this'. Contexts stack on top of each other.",
+  steps:[
+    "The <b>Global Execution Context</b> is created first and pushed onto the call stack — this holds top-level code.",
+    "Whenever a function is called, a new <b>Function Execution Context</b> is created and pushed on top.",
+    "That context has two phases: <b>creation</b> (hoist variables/functions, set up scope and 'this') then <b>execution</b> (run line by line).",
+    "When the function returns, its context is <b>popped</b> off the stack, and control resumes wherever it left off below.",
+    "The stack has a size limit — unbounded recursion pushes contexts faster than they pop, producing a <b>'Maximum call stack size exceeded'</b> error.",
+    "Each context also tracks a <b>variable environment</b> (its own local variables) and an <b>outer reference</b> to the scope it was defined in — this outer link is what makes closures possible.",
+    "Stack traces in error messages are literally a printout of the call stack at the moment of the error — reading them top-to-bottom tells you the exact call chain that led there.",
+    "JS engines don't reliably optimize tail calls despite it being in the ES2015 spec — writing 'tail-recursive' code in JS still risks a real stack overflow, unlike in languages that guarantee tail-call optimization."
+  ],
+  code:`function greet(name) {\n  return 'hi ' + name;\n}\ngreet('Gayan'); <span class="cm">// pushes greet's context, then pops it</span>`,
+  terms:[
+    {term:"Execution context", desc:"A container tracking variables, scope chain, and 'this' for a running block of code.", detail:"Every context goes through a creation phase (hoisting, scope setup) before a single line executes — that's why declarations can be 'seen' before their line runs.", code:`function outer() {\n  function inner() { return 'hi'; }\n  return inner();  <span class="cm">// inner() gets its own execution context</span>\n}`},
+    {term:"Call stack", desc:"LIFO structure tracking which execution context is currently active.", detail:"Reading a stack trace top-to-bottom shows you the exact chain of calls that led to where you are right now — innermost call first.", code:`function a(){ b(); }\nfunction b(){ c(); }\nfunction c(){ console.trace(); }\na();  <span class="cm">// trace shows: c, b, a</span>`},
+    {term:"Stack overflow", desc:"Happens when contexts push faster than they pop — e.g. infinite/unbounded recursion.", detail:"JS engines don't guarantee tail-call optimization, so even a 'clean' recursive function can blow the stack on large inputs.", code:`function count(n) {\n  return count(n + 1);  <span class="cm">// no base case</span>\n}\ncount(0); <span class="cm">// RangeError: Maximum call stack size exceeded</span>`}
+  ]
+},
+{ id:'memory', title:'Memory: stack vs heap', animate:'heap',
+  lede:"JS has two very different memory regions, and confusing them is one of the most common interview trip-ups.",
+  steps:[
+    "<b>Primitives</b> (number, string, boolean, null, undefined, symbol, bigint) are stored directly in the <b>stack</b>, inside the execution context.",
+    "<b>Objects, arrays, and functions</b> are allocated in the <b>heap</b> — a large, less-structured memory region.",
+    "A variable referencing an object doesn't hold the object — it holds a <b>reference (pointer)</b> to its heap address.",
+    "This is why objects are <b>copied by reference</b> and primitives are <b>copied by value</b> when assigned or passed to a function.",
+    "Primitives are also <b>immutable</b> — string methods like <code>.toUpperCase()</code> don't change the original, they return a brand-new value.",
+    "Comparing two objects with <code>===</code> checks whether they're the <b>same heap reference</b>, not whether their contents look equal — two identical-looking objects are still unequal.",
+    "The stack is fast because its size is known at compile time and it's cleaned up automatically as contexts pop; the heap needs a garbage collector precisely because object lifetimes aren't predictable.",
+    "<code>Object.freeze()</code> only prevents reassigning an object's own top-level properties — it's shallow, so a frozen object can still have a mutable nested object inside it."
+  ],
+  code:`let a = 10;          <span class="cm">// stack: primitive</span>\nlet obj = { x: 1 };  <span class="cm">// heap: object, stack holds a pointer</span>\nlet obj2 = obj;       <span class="cm">// copies the pointer, not the object</span>\nobj2.x = 99;          <span class="cm">// obj.x is 99 too — same heap object</span>`,
+  terms:[
+    {term:"Stack memory", desc:"Fixed-size, fast, automatically managed as contexts push/pop.", detail:"Because its layout is predictable, allocating and freeing stack memory is essentially free compared to heap allocation.", code:`function add(a, b) {\n  const sum = a + b;   <span class="cm">// sum lives in this frame's stack space</span>\n  return sum;\n}                       <span class="cm">// freed automatically when the frame pops</span>`},
+    {term:"Heap memory", desc:"Large, dynamically allocated, managed by the garbage collector.", detail:"Heap allocation costs more than stack allocation, which is part of why creating huge numbers of small objects in a hot loop can hurt performance.", code:`function makeUser(name) {\n  return { name, createdAt: Date.now() };  <span class="cm">// allocated on the heap</span>\n}`},
+    {term:"Pass by reference (sort of)", desc:"JS passes the reference by value — you can mutate the object, but reassigning the parameter doesn't affect the caller's variable.", detail:"This distinction — mutating vs reassigning — is one of the most common sources of confusion when reasoning about function side effects.", code:`function mutate(obj) { obj.x = 99; }      <span class="cm">// affects caller</span>\nfunction reassign(obj) { obj = { x: 1 }; } <span class="cm">// does NOT affect caller</span>\nconst o = { x: 0 };\nmutate(o); console.log(o.x);   <span class="cm">// 99</span>\nreassign(o); console.log(o.x); <span class="cm">// still 99</span>`}
+  ]
+},
+{ id:'scope', title:'Scope, closures & the scope chain', animate:'chain',
+  lede:"Closures are the single most-tested JS concept in coding assessments — they come from how scope is resolved, not memorized magic.",
+  steps:[
+    "Every function, when defined, remembers the <b>lexical scope</b> it was created in — not where it's called from.",
+    "When a variable is referenced, JS looks it up through the <b>scope chain</b>: local → enclosing → ... → global.",
+    "A <b>closure</b> is formed when an inner function is returned/passed out and keeps a live reference to its outer function's variables.",
+    "Because that variable is still referenced, it <b>can't be garbage collected</b> — the closure keeps it alive on the heap even after the outer function has returned.",
+    "This is also how private state works without classes — the classic <b>module pattern</b> hides variables that only inner functions can touch.",
+    "Each function call creates a <b>brand-new scope</b> — calling <code>counter()</code> twice gives two independent closures, each with its own separate <code>count</code>.",
+    "Block scope (<code>{ }</code> with <code>let</code>/<code>const</code>) is a more recent addition — <code>var</code> ignores block boundaries entirely and only respects function scope.",
+    "Before <code>let</code>/<code>const</code> existed, an <b>IIFE</b> (Immediately Invoked Function Expression) was the standard trick for creating an isolated scope on the spot — you'll still see it in older codebases and some module bundler output."
+  ],
+  code:`function counter() {\n  let count = 0;                 <span class="cm">// captured by closure</span>\n  return () => ++count;\n}\nconst inc = counter();\ninc(); inc();                    <span class="cm">// 1, then 2 — count persists</span>`,
+  terms:[
+    {term:"Lexical scope", desc:"Scope determined by where code is physically written, not where it's called.", detail:"This is what makes closures predictable — you can always figure out what a function can 'see' just by reading its surrounding code, regardless of how it's later invoked.", code:`const x = 'outer';\nfunction show() { console.log(x); }  <span class="cm">// always sees the outer x</span>\nfunction wrapper() {\n  const x = 'inner';\n  show();  <span class="cm">// still logs 'outer' — lexical, not dynamic</span>\n}`},
+    {term:"Closure", desc:"A function bundled with references to its surrounding state.", detail:"Every function in JS is technically a closure — most just don't capture anything interesting because they don't reference outer variables.", code:`function makeAdder(x) {\n  return y => x + y;   <span class="cm">// remembers x forever</span>\n}\nconst add5 = makeAdder(5);\nadd5(3);  <span class="cm">// 8</span>`},
+    {term:"Scope chain", desc:"The lookup path JS follows to resolve a variable name.", detail:"Lookup always walks outward and stops at the first match — a variable in an inner scope 'shadows' (hides) one with the same name further out.", code:`let val = 'global';\nfunction outer() {\n  let val = 'outer';\n  function inner() {\n    console.log(val);   <span class="cm">// 'outer' — nearest match wins</span>\n  }\n  inner();\n}`}
+  ]
+},
+{ id:'hoist', title:'Hoisting', animate:'hoist',
+  lede:"Hoisting is a side effect of the creation phase of an execution context, not code being physically moved.",
+  steps:[
+    "During the <b>creation phase</b>, JS scans the code and registers all <code>var</code> and function declarations in memory first.",
+    "<code>var</code> declarations are initialized to <code>undefined</code> immediately — accessible (but empty) before their line runs.",
+    "Function declarations are hoisted <b>with their full body</b> — callable before they appear in the file.",
+    "<code>let</code>/<code>const</code> are hoisted too, but stay in the <b>temporal dead zone</b> until their declaration line executes — accessing them earlier throws a ReferenceError.",
+    "A function <i>expression</i> assigned to a var (<code>var f = function(){}</code>) is NOT hoisted with its body — only the <code>var f</code> part is, initialized to <code>undefined</code>.",
+    "If a function declaration and a <code>var</code> share the same name, the <b>function wins</b> during hoisting — it gets registered after and overwrites the variable's initial value.",
+    "<code>class</code> declarations are hoisted like <code>let</code>/<code>const</code> — they exist in the temporal dead zone, so you can't instantiate a class before its definition line either.",
+    "The TDZ applies per-block, which trips people up in <code>switch</code> statements — all <code>case</code>s share one block, so a <code>let</code> declared in one case is in the TDZ for every case above it."
+  ],
+  code:`console.log(x);   <span class="cm">// undefined, not an error</span>\nvar x = 5;\n\nconsole.log(y);   <span class="cm">// ReferenceError — temporal dead zone</span>\nlet y = 5;`,
+  terms:[
+    {term:"Hoisting", desc:"Declarations are processed before execution; only var initializes to undefined.", detail:"Function declarations are hoisted with their entire body attached — which is why you can call a function defined further down the same file.", code:`sayHi();  <span class="cm">// works — function is fully hoisted</span>\nfunction sayHi() { console.log('hi'); }`},
+    {term:"Temporal dead zone", desc:"The span from scope start to declaration where let/const exist but can't be read.", detail:"The TDZ exists per-block, so the same variable name in a nested block has its own separate dead zone from an outer declaration.", code:`{\n  console.log(a);  <span class="cm">// ReferenceError, not undefined</span>\n  let a = 10;\n}`}
+  ]
+},
+{ id:'proto', title:'Prototypes & inheritance', animate:'protochain',
+  lede:"JS objects don't use classical inheritance — they link to each other via an internal prototype reference.",
+  steps:[
+    "Every object has an internal <code>[[Prototype]]</code> link (exposed as <code>__proto__</code>) pointing to another object.",
+    "When you access a property, JS checks the object itself first, then walks up the <b>prototype chain</b> until it finds it or hits <code>null</code>.",
+    "<code>class</code> syntax is <b>syntactic sugar</b> over this same prototype mechanism — it doesn't change how lookup works underneath.",
+    "Methods defined on a class/constructor's <code>prototype</code> are shared across all instances, not copied per instance — saving memory.",
+    "Built-in methods like <code>array.map()</code> or <code>string.slice()</code> aren't duplicated on every value either — they live once on <code>Array.prototype</code> / <code>String.prototype</code>.",
+    "<code>hasOwnProperty()</code> checks only the object itself, ignoring the chain — useful for telling 'defined here' apart from 'inherited from somewhere up the chain'.",
+    "<code>extends</code> in a class sets up the prototype link automatically; <code>super()</code> calls the parent constructor to initialize the inherited part of the object.",
+    "Static methods (<code>static greet(){}</code>) live on the <b>constructor function itself</b>, not on <code>prototype</code> — that's why they're inherited through the constructor chain, not through instances."
+  ],
+  code:`function Dog(name) { this.name = name; }\nDog.prototype.bark = function() { return this.name + ' barks'; };\nconst d = new Dog('Rex');\nd.bark(); <span class="cm">// found on Dog.prototype, not on d itself</span>`,
+  terms:[
+    {term:"Prototype chain", desc:"The linked path of [[Prototype]] references used for property lookup.", detail:"The chain always terminates at Object.prototype, then null — that final null is why the lookup eventually stops instead of looping forever.", code:`const arr = [1,2,3];\narr.__proto__ === Array.prototype;              <span class="cm">// true</span>\nArray.prototype.__proto__ === Object.prototype; <span class="cm">// true</span>`},
+    {term:"Object.create()", desc:"Creates an object with a specific prototype directly.", detail:"It's the most explicit way to set up prototypal inheritance without going through a constructor function or class at all.", code:`const animal = { speak(){ return 'some sound'; } };\nconst dog = Object.create(animal);\ndog.speak();  <span class="cm">// 'some sound' — found via the prototype link</span>`}
+  ]
+},
+{ id:'this', title:"The 'this' keyword", animate:'thisflip',
+  lede:"'this' is not fixed at write-time (except for arrow functions) — it's determined by how a function is called.",
+  steps:[
+    "<b>Plain call</b> (<code>fn()</code>): 'this' is <code>undefined</code> in strict mode, or the global object otherwise.",
+    "<b>Method call</b> (<code>obj.fn()</code>): 'this' is the object left of the dot at call time.",
+    "<b>Constructor call</b> (<code>new Fn()</code>): 'this' is the newly created object.",
+    "<b>Arrow functions</b> don't have their own 'this' — they capture it lexically from the enclosing scope, permanently.",
+    "This is exactly why arrow functions are the default choice for callbacks inside class methods — no <code>.bind(this)</code> needed.",
+    "<code>call()</code> and <code>apply()</code> both invoke a function immediately with an explicit 'this' — the only difference is how the remaining arguments are passed (list vs array).",
+    "In event handlers, DOM APIs typically set 'this' to the element the handler was attached to — another form of implicit binding worth knowing separately from method calls.",
+    "An arrow function defined <i>inside</i> a regular method still inherits 'this' from that method's call — which is exactly why arrows fix the classic 'this is undefined inside my callback' bug without needing <code>const self = this</code>."
+  ],
+  code:`const obj = {\n  name: 'A',\n  normal() { return this.name; },      <span class="cm">// 'A' — obj called it</span>\n  arrow: () => this?.name              <span class="cm">// undefined — lexical 'this'</span>\n};`,
+  terms:[
+    {term:"Implicit binding", desc:"'this' set by the object a method is called on.", detail:"The binding is decided purely by the syntax at the call site (what's left of the dot) — not by where or how the function was originally defined.", code:`const user = { name: 'Kai', greet(){ return this.name; } };\nuser.greet();  <span class="cm">// 'Kai' — implicit binding to user</span>`},
+    {term:"Explicit binding", desc:"Set manually via call(), apply(), or bind().", detail:"bind() is unique among the three — it doesn't call the function immediately, it returns a brand-new function with 'this' permanently fixed.", code:`function greet(){ return this.name; }\nconst user = { name: 'Kai' };\ngreet.call(user);          <span class="cm">// 'Kai' — runs immediately</span>\nconst bound = greet.bind(user);\nbound();                   <span class="cm">// 'Kai' — this locked forever</span>`}
+  ]
+},
+{ id:'loop-js', title:'Event loop in the browser', animate:'loop',
+  lede:"In the browser, the JS engine (call stack + heap) is paired with Web APIs the engine itself doesn't implement.",
+  steps:[
+    "The <b>JS engine</b> runs your code on a single call stack — it cannot do networking, timers, or DOM events itself.",
+    "Async operations (<code>fetch</code>, <code>setTimeout</code>, DOM listeners) are handed off to <b>Web APIs</b> provided by the browser.",
+    "When those complete, their callbacks go into either the <b>macrotask queue</b> (timers, events) or the <b>microtask queue</b> (Promises).",
+    "The <b>event loop</b> only pushes a queued callback onto the call stack once the stack is completely empty — and always drains all microtasks before the next macrotask.",
+    "<code>requestAnimationFrame</code> is a third scheduling point — it runs after microtasks drain but right before the next repaint, separate from both queues.",
+    "This is also why a long-running synchronous loop <b>freezes the whole page</b> — clicks, scrolling, and repaints all wait behind whatever's currently on the call stack.",
+    "The Node.js event loop shares the same core idea but has explicit, ordered phases instead of just two flat queues — see the Node side for the full breakdown.",
+    "The spec calls the point where microtasks drain a <b>'microtask checkpoint'</b> — it happens not just after the whole script, but after every single callback, including ones inside other callbacks."
+  ],
+  code:`console.log('A');\nsetTimeout(() => console.log('B'), 0);   <span class="cm">// macrotask</span>\nPromise.resolve().then(() => console.log('C')); <span class="cm">// microtask</span>\nconsole.log('D');\n<span class="cm">// output: A, D, C, B</span>`,
+  terms:[
+    {term:"Web APIs", desc:"Browser-provided capabilities (DOM, fetch, timers) outside the JS engine itself.", detail:"They run in the browser's own threads (or the network stack), which is exactly why they don't block your JS code while waiting.", code:`fetch('/api/data')          <span class="cm">// handled by the browser's network stack</span>\n  .then(res => res.json())  <span class="cm">// callback queued once it resolves</span>\n  .then(data => console.log(data));`},
+    {term:"Event loop", desc:"The mechanism that moves queued callbacks onto the empty call stack.", detail:"It's not actually part of the JS engine (V8) — it's provided by the host environment, which is why Node and browsers implement it slightly differently.", code:`console.log('sync');\nsetTimeout(() => console.log('queued'), 0);\nconsole.log('sync again');\n<span class="cm">// sync, sync again, queued — loop only runs once stack is empty</span>`}
+  ]
+},
+{ id:'tasks', title:'Microtasks vs macrotasks', animate:'taskqueue',
+  lede:"This distinction alone accounts for a large share of 'predict the output' interview questions.",
+  steps:[
+    "<b>Macrotasks</b>: <code>setTimeout</code>, <code>setInterval</code>, UI rendering, I/O events — one runs per loop iteration.",
+    "<b>Microtasks</b>: Promise <code>.then/.catch/.finally</code>, <code>queueMicrotask</code> — much higher priority.",
+    "After <b>every single task</b> (not just once per loop), the engine fully drains the microtask queue before doing anything else.",
+    "This means a chain of <code>.then()</code> calls can keep running before a single <code>setTimeout</code> ever fires, even a 0ms one.",
+    "<code>queueMicrotask(fn)</code> lets you schedule a microtask directly, without wrapping anything in a Promise first.",
+    "<code>async</code>/<code>await</code> is built on this same queue — everything after an <code>await</code> resumes as a microtask, which is why <code>await</code>-heavy code can still starve macrotasks if chained aggressively.",
+    "In Node.js, <code>process.nextTick</code> sits in an even higher-priority lane <i>above</i> Promise microtasks — see the Node side for that distinction.",
+    "Browsers guard against total starvation by yielding to rendering periodically even under heavy microtask pressure — but relying on that instead of writing sane async code is a fragile habit."
+  ],
+  code:`Promise.resolve().then(() => {\n  console.log('1');\n  Promise.resolve().then(() => console.log('2'));\n});\nsetTimeout(() => console.log('3'), 0);\n<span class="cm">// output: 1, 2, 3 — nested microtasks still beat the timer</span>`,
+  terms:[
+    {term:"Starvation risk", desc:"Endlessly chained microtasks can delay macrotasks (rendering, timers) indefinitely.", detail:"This isn't just theoretical — a bug where a promise chain keeps re-queuing itself can visibly freeze a page's rendering while the JS thread stays 'busy' the whole time.", code:`function loopForever() {\n  Promise.resolve().then(loopForever);  <span class="cm">// re-queues itself every time</span>\n}\nloopForever();\nsetTimeout(() => console.log('never runs'), 0);  <span class="cm">// starved</span>`}
+  ]
+},
+{ id:'gc', title:'Garbage collection', animate:'sweep',
+  lede:"JS memory is managed automatically — but understanding the algorithm explains why some memory leaks happen.",
+  steps:[
+    "Modern engines use <b>mark-and-sweep</b>: starting from 'roots' (global object, currently executing functions), the GC marks every object reachable by reference.",
+    "Anything <b>not marked</b> — unreachable from any root — is considered garbage and its memory is freed.",
+    "Common leak source: a forgotten reference (e.g. a growing array, an event listener never removed, a closure holding a large object) keeps something 'reachable' forever.",
+    "<b>Reference counting</b> is an older alternative approach (still used in some engines for certain cases) but can't handle circular references without extra help.",
+    "<code>WeakMap</code>/<code>WeakSet</code> hold <b>weak references</b> — their entries don't stop keys from being garbage collected, which makes them ideal for caches and metadata.",
+    "V8 actually runs GC in <b>generations</b> — a fast 'young generation' sweep for short-lived objects, and a slower, less frequent 'old generation' sweep for objects that survive multiple rounds.",
+    "You can't force garbage collection deterministically from normal JS code — setting a reference to <code>null</code> only makes an object <i>eligible</i> for collection, not immediately freed.",
+    "V8's heap size is capped by default (historically ~1.5-2GB for old-space) — long-running Node processes that leak memory will eventually hit <code>'JavaScript heap out of memory'</code> rather than growing forever."
+  ],
+  code:`let obj = { big: new Array(1e6) };\nobj = null;  <span class="cm">// no more references → eligible for GC</span>`,
+  terms:[
+    {term:"Mark-and-sweep", desc:"GC algorithm: mark reachable objects, sweep away the rest.", detail:"Because it works from reachability rather than reference counts, it naturally handles circular references — two objects only pointing at each other, with nothing else pointing at either, still both get collected.", code:`function makeCircle() {\n  const a = {}; const b = {};\n  a.ref = b; b.ref = a;   <span class="cm">// circular, but both unreachable once fn returns</span>\n}\nmakeCircle();  <span class="cm">// both a and b are eligible for GC</span>`},
+    {term:"Memory leak", desc:"Memory that's no longer needed but still reachable, so never collected.", detail:"A very common real-world cause is forgetting to remove an event listener — it keeps a reference to its callback (and everything that callback closes over) alive indefinitely.", code:`function attach() {\n  const bigData = new Array(1e6);\n  window.addEventListener('resize', () => console.log(bigData.length));\n  <span class="cm">// bigData is now kept alive by the listener, forever, unless removed</span>\n}`}
+  ]
+},
+{ id:'demo-js', title:'Live demo: call stack, heap & loop', type:'demo', demo:'js' }
+];
+
+const nodeTopics = [
+{ id:'what', title:'What Node.js actually is', animate:'enginemerge',
+  lede:"Node isn't a new language or a browser replacement — it's two C++ libraries glued to the same JS engine Chrome uses.",
+  steps:[
+    "<b>V8</b> (Google's JS engine) compiles and runs your JavaScript — identical engine to Chrome, no Web APIs though.",
+    "<b>libuv</b> is a C library that gives Node its event loop, thread pool, and access to networking/filesystem — this is what replaces the browser's Web APIs.",
+    "Node adds its own globals (<code>process</code>, <code>Buffer</code>, <code>require</code>/<code>module</code>) that don't exist in browsers, and removes browser-only ones (<code>window</code>, <code>document</code>).",
+    "The result: JavaScript that can open files, listen on sockets, and spawn processes — things browsers deliberately don't allow for security.",
+    "Node's version number tracks which V8 version ships inside it — a newer Node release often means newer JS language features are available at runtime.",
+    "Node ships as a single executable that bundles V8, libuv, and a set of built-in modules (fs, http, path, etc.) — no separate JS engine install is needed.",
+    "Deno and Bun are newer alternatives built on similar ideas (V8 or JavaScriptCore plus an event loop), but Node's ecosystem (npm) is still what most production backends run on.",
+    "<b>npm</b> ships bundled with Node and reads <code>package.json</code> to resolve dependencies into <code>node_modules</code> — it's a separate tool from the Node runtime itself, just installed alongside it by convention."
+  ],
+  code:`console.log(process.version);   <span class="cm">// Node-only global, powered by libuv/V8 internals</span>`,
+  terms:[
+    {term:"V8", desc:"Google's JS engine — compiles JS to machine code, manages heap & GC.", detail:"V8 is entirely separate from Node — it's the same engine embedded in Chrome, which is why Node's core JS behavior (closures, prototypes, GC) matches the browser exactly.", code:`console.log(process.versions.v8);  <span class="cm">// e.g. '11.3.244.8' — the exact V8 build in this Node</span>`},
+    {term:"libuv", desc:"C library providing the event loop, thread pool, and async I/O.", detail:"libuv is what makes Node's non-blocking model possible at all — without it, V8 alone has no concept of a file system, sockets, or timers.", code:`const fs = require('fs');\nfs.readFile(__filename, () => {});  <span class="cm">// this async call is powered by libuv, not V8</span>`}
+  ]
+},
+{ id:'phases', title:'The Node event loop — six phases', animate:'loop',
+  lede:"Unlike the simplified browser loop, Node's loop has explicit, ordered phases, each with its own callback queue.",
+  steps:[
+    "<b>Timers</b>: runs <code>setTimeout</code>/<code>setInterval</code> callbacks whose delay has elapsed.",
+    "<b>Pending callbacks</b>: executes I/O callbacks deferred from the previous cycle (e.g. some TCP errors).",
+    "<b>Poll</b>: retrieves new I/O events and runs their callbacks — the loop can block here if there's nothing else queued.",
+    "<b>Check</b>: runs <code>setImmediate()</code> callbacks — always right after Poll.",
+    "<b>Close callbacks</b>: runs handlers like <code>socket.on('close', ...)</code>.",
+    "After <b>every callback</b> in every phase, Node drains <code>process.nextTick</code> then Promise microtasks before continuing.",
+    "A process stays alive as long as it has any pending timer, open server, or unfinished I/O — that's why a running HTTP server keeps a script alive indefinitely.",
+    "<code>ref()</code>/<code>unref()</code> on timers and sockets let you opt a handle <b>out</b> of keeping the process alive — useful for background heartbeats that shouldn't block a clean exit.",
+    "The Poll phase computes how long it's safe to block waiting for I/O based on the <b>closest upcoming timer</b> — it won't sleep past when the next setTimeout is due to fire."
+  ],
+  code:`setTimeout(() => console.log('timer'), 0);\nsetImmediate(() => console.log('immediate'));\n<span class="cm">// order depends on how much sync work ran first — see Timers vs Check below</span>`,
+  terms:[
+    {term:"Phase", desc:"A distinct stage of the loop with its own FIFO callback queue.", detail:"Callbacks registered in one phase never jump ahead into an earlier phase in the same tick — they wait for that phase to come around again on the next pass.", code:`setTimeout(() => console.log('timers phase'), 0);\nsetImmediate(() => console.log('check phase'));\n<span class="cm">// each callback is tied to a specific phase, not just 'soon'</span>`},
+    {term:"Tick", desc:"One full pass through all six phases.", detail:"A busy server with constant I/O can run thousands of ticks per second — each one checking every phase's queue in the same fixed order.", code:`<span class="cm">// conceptually, one tick = Timers → Pending → Poll → Check → Close</span>\n<span class="cm">// then the loop starts the next tick from Timers again</span>`}
+  ]
+},
+{ id:'pool', title:'The libuv thread pool', animate:'thread',
+  lede:"Node is famous for being 'single-threaded' — but that's only true of your JS code, not the whole runtime.",
+  steps:[
+    "Certain operations are <b>blocking at the OS level</b>: file system calls, DNS lookups (<code>dns.lookup</code>), and some crypto (<code>pbkdf2</code>, <code>scrypt</code>).",
+    "libuv offloads these to a <b>thread pool</b>, default size <b>4</b>, configurable via <code>UV_THREADPOOL_SIZE</code>.",
+    "Your JS thread keeps running while a worker thread does the blocking work in the background.",
+    "When the worker finishes, it posts the result back, and the callback runs in the <b>Poll phase</b> on the main JS thread — same single thread as everything else.",
+    "The pool is built for I/O, not computation — genuinely CPU-heavy work (image processing, parsing) is better handled by <code>worker_threads</code> instead.",
+    "If all 4 threads are busy, additional fs/dns/crypto calls simply <b>queue up</b> waiting for a free worker — a burst of file reads can bottleneck here even though your JS code never blocks.",
+    "<code>dns.resolve()</code> (as opposed to <code>dns.lookup()</code>) bypasses the thread pool entirely and uses the OS's async resolver directly — one of the few DNS-related exceptions.",
+    "Increasing <code>UV_THREADPOOL_SIZE</code> must be set <b>before</b> Node starts (it's read once at startup) — setting it inside your script after the process has launched has no effect."
+  ],
+  code:`fs.readFile('big.txt', cb);   <span class="cm">// offloaded to a pool thread</span>\nfs.readFileSync('big.txt');   <span class="cm">// blocks the main thread directly — no pool</span>`,
+  terms:[
+    {term:"Thread pool", desc:"Fixed set of worker threads (default 4) handling blocking OS calls.", detail:"The size must be set via an environment variable before Node starts — there's no way to resize it at runtime from inside your script.", code:`<span class="cm">// must be set BEFORE node starts, e.g. in your shell:</span>\n<span class="cm">// UV_THREADPOOL_SIZE=8 node server.js</span>\nfs.readFile('a.txt', cb);  <span class="cm">// picks up an available pool thread</span>`},
+    {term:"Not used for networking", desc:"TCP/HTTP sockets use the OS's async I/O directly — no thread pool needed.", detail:"This is why a server handling thousands of concurrent HTTP connections doesn't need thousands of threads — the kernel itself tracks all those open sockets.", code:`http.get('http://example.com', res => {});  <span class="cm">// handled by OS async sockets, not the pool</span>`}
+  ]
+},
+{ id:'modules', title:'Modules: CommonJS vs ESM', animate:'moduleflow',
+  lede:"Node supports two module systems with genuinely different loading behavior — a frequent 'gotcha' topic.",
+  steps:[
+    "<b>CommonJS</b> (<code>require</code>/<code>module.exports</code>) loads <b>synchronously</b> and caches by resolved file path.",
+    "Because CommonJS is sync, <code>require()</code> can be called conditionally, inside functions, anywhere.",
+    "<b>ES Modules</b> (<code>import</code>/<code>export</code>) are loaded <b>asynchronously</b> and statically analyzed before execution — imports must be top-level.",
+    "ESM's static structure enables <b>tree-shaking</b> (removing unused exports) — something CommonJS can't reliably support.",
+    "Node picks the module system by file extension (<code>.mjs</code> vs <code>.cjs</code>) or by the <code>\"type\"</code> field in <code>package.json</code>.",
+    "ESM modules run in <b>strict mode</b> automatically and don't have CommonJS's <code>require</code>, <code>__dirname</code>, or <code>__filename</code> — you need <code>import.meta.url</code> instead.",
+    "You can import a CommonJS module from ESM, but not cleanly the other way around — this asymmetry is a common source of tooling headaches in mixed codebases.",
+    "Dynamic <code>import('./mod.js')</code> is the one way ESM supports conditional, on-demand loading — it returns a promise, working around the top-level-only restriction on static <code>import</code>."
+  ],
+  code:`<span class="cm">// CommonJS</span>\nconst fs = require('fs');\nmodule.exports = { fs };\n\n<span class="cm">// ESM</span>\nimport fs from 'fs';\nexport default { fs };`,
+  terms:[
+    {term:"require cache", desc:"CommonJS caches modules by file path — a second require() returns the same instance.", detail:"You can inspect (or even delete) entries directly via require.cache, which is how some hot-reloading tools force a module to be re-evaluated.", code:`const a1 = require('./config');\nconst a2 = require('./config');\na1 === a2;  <span class="cm">// true — same cached object, not a fresh copy</span>`},
+    {term:"Circular dependency", desc:"Handled differently in each system — CJS returns a partial (possibly incomplete) export object.", detail:"If module A requires B, and B requires A back, whichever module finishes loading second may only see a half-populated exports object from the other.", code:`<span class="cm">// a.js</span>\nconst b = require('./b');   <span class="cm">// b might be incomplete here</span>\nmodule.exports = { name: 'a' };`}
+  ]
+},
+{ id:'streams', title:'Streams & buffers', animate:'stream',
+  lede:"Node processes data in chunks instead of loading it all into memory — essential for large files and network data.",
+  steps:[
+    "A <b>Buffer</b> is a fixed-size chunk of raw binary data, allocated <b>outside</b> the V8 heap so large binary payloads don't pressure GC.",
+    "A <b>Stream</b> is an abstraction for reading/writing data <b>piece by piece</b> instead of all at once.",
+    "Four stream types: <b>Readable</b> (source, e.g. file read), <b>Writable</b> (destination, e.g. file write), <b>Duplex</b> (both), <b>Transform</b> (modifies data as it passes through, e.g. gzip).",
+    "<code>.pipe()</code> connects streams and automatically handles <b>backpressure</b> — pausing the source if the destination can't keep up.",
+    "Streams are everywhere under the hood — HTTP requests/responses, <code>process.stdin</code>/<code>stdout</code>, and file I/O are all built on this same interface.",
+    "Streams are <code>EventEmitter</code>s under the hood — <code>'data'</code>, <code>'end'</code>, <code>'error'</code>, and <code>'finish'</code> events drive both the flowing and paused reading modes.",
+    "Always attach an <code>'error'</code> listener on streams — an unhandled stream error can crash the whole process, unlike a rejected promise which just logs a warning.",
+    "<code>highWaterMark</code> controls the internal buffer size before backpressure kicks in — tuning it trades memory usage against how often the stream pauses to let a slow consumer catch up."
+  ],
+  code:`const rs = fs.createReadStream('in.txt');\nconst ws = fs.createWriteStream('out.txt');\nrs.pipe(ws);   <span class="cm">// streams in chunks, handles backpressure automatically</span>`,
+  terms:[
+    {term:"Backpressure", desc:"Slowing the data source so a slower consumer isn't overwhelmed.", detail:"Ignoring backpressure — writing to a slow destination as fast as data arrives — is one of the most common causes of unbounded memory growth in Node servers.", code:`readable.pipe(writable);  <span class="cm">// pipe() automatically pauses readable if writable falls behind</span>`},
+    {term:"Buffer", desc:"Raw binary data storage, allocated off the V8 heap.", detail:"Buffers are how Node handles anything that isn't text — image data, TCP packets, file contents before you decide on an encoding.", code:`const buf = Buffer.from('hello', 'utf8');\nbuf.length;          <span class="cm">// 5 — byte length, not string length</span>\nbuf.toString('hex');  <span class="cm">// '68656c6c6f'</span>`}
+  ]
+},
+{ id:'process', title:'process & nextTick', animate:'nexttick',
+  lede:"process is Node's window into the running program itself — and nextTick is its highest-priority queue.",
+  steps:[
+    "<code>process</code> is a global object exposing environment variables, args, exit codes, and lifecycle events.",
+    "<code>process.nextTick(fn)</code> queues <code>fn</code> to run <b>immediately after the current operation</b>, before the event loop continues to any phase.",
+    "It has <b>higher priority than Promise microtasks</b> — Node checks nextTick's queue first, every single time.",
+    "Overusing <code>nextTick</code> recursively can <b>starve the event loop</b> — I/O never gets a chance to run.",
+    "<code>process.argv</code> exposes command-line arguments, and <code>process.on('exit', fn)</code> lets you run cleanup code right before the process terminates.",
+    "<code>process.on('uncaughtException', fn)</code> and <code>process.on('unhandledRejection', fn)</code> are last-resort safety nets — useful for logging, but the process is generally left in an unknown state afterward and should still exit.",
+    "<code>nextTick</code> was originally designed to let APIs guarantee a callback is always async, even when the underlying operation completes synchronously — keeping calling code's control flow predictable.",
+    "<code>process.on('SIGTERM', fn)</code> lets you intercept the signal orchestrators like Kubernetes send before killing a container — the standard hook for graceful shutdown (closing DB connections, finishing in-flight requests)."
+  ],
+  code:`process.nextTick(() => console.log('next tick'));\nPromise.resolve().then(() => console.log('promise'));\n<span class="cm">// output: 'next tick' always first</span>`,
+  terms:[
+    {term:"process.exitCode", desc:"Sets the exit code without forcibly killing the process mid-task.", detail:"Preferred over process.exit() in most cases, since it lets pending I/O (like a final log write) finish before the process actually exits naturally.", code:`if (errorHappened) {\n  process.exitCode = 1;   <span class="cm">// process exits with code 1 once it naturally finishes</span>\n}`},
+    {term:"process.env", desc:"Read-only-ish object exposing environment variables.", detail:"Every value on process.env is a string, even ones that look like numbers or booleans — a very common source of subtle bugs when reading config.", code:`process.env.PORT;          <span class="cm">// '3000' — a string, not the number 3000</span>\nNumber(process.env.PORT);  <span class="cm">// 3000 — needs explicit conversion</span>`}
+  ]
+},
+{ id:'cluster', title:'Scaling: cluster & worker threads', animate:'clusterproc',
+  lede:"Since one Node process uses one JS thread, scaling across CPU cores needs an explicit strategy.",
+  steps:[
+    "The <b>cluster module</b> forks multiple full Node <b>processes</b>, each with its own event loop and memory, sharing a server port.",
+    "A load balancer (built into cluster) distributes incoming connections across the forked workers.",
+    "<b>worker_threads</b> is different: it runs multiple JS contexts <b>inside the same process</b>, letting you share memory via <code>SharedArrayBuffer</code>.",
+    "Rule of thumb: <b>cluster</b> for scaling network-bound apps (web servers), <b>worker_threads</b> for CPU-heavy computation (image processing, parsing).",
+    "Each cluster worker has its own isolated memory — an in-memory cache or counter in one worker is <b>not</b> automatically visible to the others.",
+    "In production, process managers like <b>PM2</b> or container orchestrators (Kubernetes) often replace manual <code>cluster.fork()</code> calls, restarting crashed workers automatically.",
+    "Communication between the primary and cluster workers happens via <code>.send()</code>/<code>'message'</code> events — effectively message-passing, since there's no shared memory to read directly.",
+    "Cluster's default round-robin load balancing isn't 'sticky' — the same client's requests can land on different workers, which breaks in-memory session storage unless you add sticky sessions or move sessions to Redis."
+  ],
+  code:`<span class="cm">// cluster: separate processes, no shared memory</span>\nif (cluster.isPrimary) cluster.fork();\n\n<span class="cm">// worker_threads: shared-memory-capable, same process</span>\nnew Worker('./heavy-task.js');`,
+  terms:[
+    {term:"cluster", desc:"Multiple OS processes sharing a port, each single-threaded internally.", detail:"The OS (or Node's internal round-robin scheduler) decides which worker process gets each new connection — your app code doesn't control that directly.", code:`const cluster = require('cluster');\nif (cluster.isPrimary) {\n  for (let i = 0; i < 4; i++) cluster.fork();  <span class="cm">// 4 separate processes</span>\n} else {\n  require('./server');  <span class="cm">// each worker runs its own copy</span>\n}`},
+    {term:"worker_threads", desc:"Multiple threads within one process, can share memory buffers.", detail:"Unlike cluster's isolated processes, worker_threads can pass a SharedArrayBuffer directly, avoiding the cost of serializing data between them.", code:`const { Worker } = require('worker_threads');\nconst w = new Worker('./heavy-calc.js');\nw.on('message', result => console.log(result));`}
+  ]
+},
+{ id:'nonblocking', title:'The non-blocking I/O model', animate:'nonblock',
+  lede:"This is the core pitch of Node: handle thousands of concurrent connections without spawning a thread per connection.",
+  steps:[
+    "A traditional server might spawn a new OS thread per connection — expensive in memory and context-switching.",
+    "Node instead issues an I/O request and <b>immediately returns to the event loop</b> instead of waiting for it to finish.",
+    "The OS kernel (for network) or the thread pool (for file/DNS/crypto) does the actual waiting in the background.",
+    "When the operation completes, its callback is queued and picked up in the <b>Poll phase</b> — meanwhile, thousands of other requests were being handled on that same single JS thread.",
+    "The trade-off: this model favors total <b>throughput</b> over any one request's speed — a single slow <i>synchronous</i> operation (like readFileSync) still blocks every concurrent user.",
+    "This is exactly why CPU-bound work (image resizing, heavy parsing, crypto hashing) is dangerous in a naive Node server — it monopolizes the one thread that all requests share.",
+    "The fix for CPU-bound work is to offload it — either to <code>worker_threads</code>, a separate microservice, or a queue/worker process — keeping the main event loop free to keep serving I/O-bound requests.",
+    "Production Node apps often monitor <b>event loop lag</b> (the delay between scheduling a check and it actually running) as a health metric — rising lag is usually the first sign something is blocking the thread."
+  ],
+  code:`<span class="cm">// this handles many concurrent requests on ONE thread —</span>\n<span class="cm">// each request's DB call yields back to the loop while waiting</span>\napp.get('/user', async (req, res) => {\n  const user = await db.find(req.query.id);\n  res.json(user);\n});`,
+  terms:[
+    {term:"Blocking I/O", desc:"Thread waits idle until an operation finishes — wastes resources under load.", detail:"In a single-threaded Node process, a single blocking call doesn't just waste resources — it stalls every other concurrent request being handled at that moment.", code:`const data = fs.readFileSync('big.txt');  <span class="cm">// nothing else runs until this returns</span>\nconsole.log('done');`},
+    {term:"Non-blocking I/O", desc:"Thread issues the request and moves on; a callback fires later on completion.", detail:"This is the default pattern for almost every built-in Node API — functions ending in Sync are deliberate, less-common exceptions.", code:`fs.readFile('big.txt', (err, data) => {\n  console.log('done');   <span class="cm">// runs later, once ready</span>\n});\nconsole.log('this logs first');  <span class="cm">// thread wasn't blocked</span>`}
+  ]
+},
+{ id:'demo-node', title:'Live demo: full event loop + API request', type:'demo', demo:'node' }
+];
+
+/* ---------- animation templates ---------- */
+const animations = {
+  stack: '<div class="stack-anim"><div></div><div></div><div></div></div>',
+  heap: '<div class="heap-anim"><i></i><i></i><i></i><i></i></div>',
+  loop: '<div class="loop-anim"></div>',
+  chain: '<div class="chain-anim"><div>scope A</div><div>→</div><div>scope B</div></div>',
+  thread: '<div class="thread-anim"><div></div><div></div><div></div><div></div></div>',
+  stream: '<div class="stream-anim"><i></i><i></i><i></i></div>',
+  thisflip: '<div class="thisflip-anim"><div class="tf-box">this</div><div class="tf-arrow">→</div><div class="tf-box b">obj</div></div>',
+  sweep: '<div class="sweep-anim"><i class="live"></i><i class="dead"></i><i class="live"></i><i class="dead"></i></div>',
+  hoist: '<div class="hoist-anim"><div class="hoist-top">top of scope</div><div class="hoist-chip v">var x</div><div class="hoist-chip f">function f(){}</div></div>',
+  protochain: '<div class="protochain-anim"><div class="pc-node">obj</div><div class="pc-arrow">→</div><div class="pc-node">Dog.prototype</div><div class="pc-arrow">→</div><div class="pc-node">Object.prototype</div><div class="pc-arrow">→</div><div class="pc-node end">null</div></div>',
+  taskqueue: '<div class="taskqueue-anim"><div class="tq-row"><span class="tq-label">micro</span><i></i><i></i><i></i></div><div class="tq-row"><span class="tq-label">macro</span><i></i></div></div>',
+  enginemerge: '<div class="enginemerge-anim"><div class="em-box v8">V8</div><div class="em-box libuv">libuv</div><div class="em-result">Node.js</div></div>',
+  moduleflow: '<div class="moduleflow-anim"><div class="mf-row sync"><span>require()</span><i class="mf-dot"></i></div><div class="mf-row async"><span>import</span><i class="mf-dot"></i></div></div>',
+  nexttick: '<div class="nexttick-anim"><div class="nt-chip">promise</div><div class="nt-chip">timer</div><div class="nt-chip priority">nextTick</div></div>',
+  clusterproc: '<div class="clusterproc-anim"><div class="cp-proc"><i></i>worker 1</div><div class="cp-proc"><i></i>worker 2</div><div class="cp-proc"><i></i>worker 3</div></div>',
+  nonblock: '<div class="nonblock-anim"><div class="nb-pipe"><i></i><i></i><i></i></div></div>'
+};
+
+/* ---------- render ---------- */
+let currentTab = 'js';
+let currentIndex = 0;
+
+function topicsFor(tab){ return tab==='js' ? jsTopics : nodeTopics; }
+
+function renderSidebar(){
+  const topics = topicsFor(currentTab);
+  document.getElementById('sidebar').innerHTML = topics.map((t,idx)=>
+    `<button class="side-item ${currentTab}${idx===currentIndex?' active':''}" data-idx="${idx}"><span class="n">${String(idx+1).padStart(2,'0')}</span>${t.title}${t.type==='demo'?'<span class="play-badge">▶ play</span>':''}</button>`
+  ).join('');
+  document.querySelectorAll('.side-item').forEach(btn=>{
+    btn.onclick = ()=>{ currentIndex = Number(btn.dataset.idx); renderAll(); };
+  });
+}
+
+function renderSections(){
+  const topics = topicsFor(currentTab);
+  const t = topics[currentIndex];
+
+  if(t.type === 'demo'){
+    document.getElementById('sections').innerHTML = `
+      <div class="section active">
+        <div class="eyebrow ${currentTab}">${currentTab==='js' ? 'JavaScript engine' : 'Node.js runtime'} — interactive demo</div>
+        <h2>${t.title}</h2>
+        <p class="lede">${t.demo==='js' ? "Step through (or play) real code and watch the call stack, heap allocation, and the microtask/macrotask queues move together." : "Step through (or play) a script that fires an API request and a file read, and watch exactly which subsystem — kernel, thread pool, or queue — handles each one."}</p>
+        ${buildDemoMarkup(t.demo)}
+      </div>`;
+    initDemo(t.demo);
+    return;
+  }
+
+  document.getElementById('sections').innerHTML = `
+    <div class="section active">
+      <div class="eyebrow ${currentTab}">${currentTab==='js' ? 'JavaScript engine' : 'Node.js runtime'} — topic ${currentIndex+1} of ${topics.length}</div>
+      <h2>${t.title}</h2>
+      <p class="lede">${t.lede}</p>
+      <div class="visual">${animations[t.animate]}</div>
+      <h3>How it works, step by step</h3>
+      <ul class="steps">${t.steps.map(s=>`<li>${s}</li>`).join('')}</ul>
+      <h3>Example</h3>
+      <pre><code>${t.code}</code></pre>
+      <h3>Key terms</h3>
+      <div class="term-grid">${t.terms.map(term=>`
+        <details class="term">
+          <summary>
+            <span class="t-head"><b>${term.term}</b></span>
+            <span class="t-desc">${term.desc}</span>
+          </summary>
+          <div class="term-expand">
+            <p>${term.detail}</p>
+            <pre><code>${term.code}</code></pre>
+          </div>
+        </details>`).join('')}</div>
+    </div>`;
+}
+
+function renderTabs(){
+  document.getElementById('tabJS').classList.toggle('active', currentTab==='js');
+  document.getElementById('tabNode').classList.toggle('active', currentTab==='node');
+}
+
+function renderFooter(){
+  const topics = topicsFor(currentTab);
+  const isFirst = currentIndex===0 && currentTab==='js';
+  const isLast = currentIndex===topics.length-1 && currentTab==='node';
+  const prevBtn = document.getElementById('prevSec');
+  const nextBtn = document.getElementById('nextSec');
+  prevBtn.disabled = isFirst;
+  nextBtn.disabled = isLast;
+  nextBtn.textContent = isLast ? "You've reached the last topic" : 'Next topic →';
+}
+
+function renderAll(){
+  renderTabs();
+  renderSidebar();
+  renderSections();
+  renderFooter();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+document.getElementById('tabJS').onclick = ()=>{ currentTab='js'; currentIndex=0; renderAll(); };
+document.getElementById('tabNode').onclick = ()=>{ currentTab='node'; currentIndex=0; renderAll(); };
+
+document.getElementById('prevSec').onclick = ()=>{
+  if(currentIndex>0){ currentIndex--; }
+  else if(currentTab==='node'){ currentTab='js'; currentIndex=jsTopics.length-1; }
+  renderAll();
+};
+document.getElementById('nextSec').onclick = ()=>{
+  const topics = topicsFor(currentTab);
+  if(currentIndex<topics.length-1){ currentIndex++; }
+  else if(currentTab==='js'){ currentTab='node'; currentIndex=0; }
+  renderAll();
+};
+
+/* ================= DEMO PLAYER ================= */
+function Fd(cls,label,ref){ return `<div class="dp-frame ${cls}"><span>${label}</span>${ref?`<span class="ref">${ref}</span>`:''}</div>`; }
+const dpEmpty = '<div class="dp-empty">empty</div>';
+
+const jsPhaseDefs = [
+  {k:'run', label:'JS running'},
+  {k:'idle', label:'Stack empty'},
+  {k:'micro', label:'Microtasks'},
+  {k:'macro', label:'Macrotask'}
+];
+const nodePhaseDefs = [
+  {k:'idle', label:'JS running'},
+  {k:'timers', label:'Timers'},
+  {k:'pending', label:'Pending cb.'},
+  {k:'poll', label:'Poll (I/O)'},
+  {k:'check', label:'Check'},
+  {k:'close', label:'Close cb.'}
+];
+
+/* ================= JS SCENARIOS ================= */
+
+/* --- 1. core: call stack, heap, microtask/macrotask --- */
+const jsCoreCode = [
+  `function <span class="fn">createUser</span>(name) {`,
+  `  <span class="kw">const</span> user = { name };`,
+  `  <span class="kw">return</span> user;`,
+  `}`,
+  ``,
+  `<span class="kw">const</span> u = <span class="fn">createUser</span>(<span class="str">'Gayan'</span>);`,
+  ``,
+  `console.log(<span class="str">'start'</span>);`,
+  `setTimeout(() => console.log(<span class="str">'timeout'</span>), 0);`,
+  `Promise.resolve().then(() => console.log(<span class="str">'promise'</span>));`,
+  `console.log(<span class="str">'end'</span>);`
+];
+const jsCoreSteps = [
+{line:5, phase:'run', stack:[Fd('stack','Global')], heap:[], micro:[], macro:[], out:[],
+ note:"<b>Script starts.</b> Global context is pushed onto the call stack."},
+{line:5, phase:'run', stack:[Fd('stack','Global'),Fd('stack',"createUser('Gayan')")], heap:[], micro:[], macro:[], out:[],
+ note:"Calling <code>createUser('Gayan')</code> pushes a new frame. <code>'Gayan'</code> is a primitive — stored right in the frame."},
+{line:1, phase:'run', stack:[Fd('stack','Global'),Fd('stack',"createUser(name)")], heap:[Fd('heap',"{ name: 'Gayan' }")], micro:[], macro:[], out:[],
+ note:"<b>{ name } is an object → allocated on the heap.</b> The stack frame only holds a reference to it."},
+{line:2, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[], macro:[], out:[],
+ note:"Function returns, its frame pops — but the heap object survives because <code>u</code> still references it."},
+{line:7, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[], macro:[], out:["start"],
+ note:"Sync code runs top to bottom. <code>console.log('start')</code> fires immediately."},
+{line:8, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[], macro:[Fd('macro',"() => log('timeout')")], out:["start"],
+ note:"<code>setTimeout(fn, 0)</code> doesn't run fn now — it's queued as a <b>macrotask</b>, even at 0ms delay."},
+{line:9, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[Fd('micro',"() => log('promise')")], macro:[Fd('macro',"() => log('timeout')")], out:["start"],
+ note:"<code>.then()</code> queues its callback on the <b>microtask queue</b> — a separate, higher-priority lane."},
+{line:10, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[Fd('micro',"() => log('promise')")], macro:[Fd('macro',"() => log('timeout')")], out:["start","end"],
+ note:"Last sync line runs. Nothing async has actually executed yet — both callbacks are still just sitting in queues."},
+{line:-1, phase:'idle', stack:[], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[Fd('micro',"() => log('promise')")], macro:[Fd('macro',"() => log('timeout')")], out:["start","end"],
+ note:"<b>Call stack is empty.</b> This is the exact trigger point where the engine checks the microtask queue before doing anything else."},
+{line:-1, phase:'micro', stack:[Fd('stack','promise callback')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[], macro:[Fd('macro',"() => log('timeout')")], out:["start","end","promise"],
+ note:"Microtask queue drains <b>completely</b> before any macrotask runs — logs <b>'promise'</b>."},
+{line:-1, phase:'macro', stack:[Fd('stack','timeout callback')], heap:[Fd('heap',"{ name: 'Gayan' }",'← u')], micro:[], macro:[], out:["start","end","promise","timeout"],
+ note:"Only now does the timer's macrotask run — logs <b>'timeout'</b>, always last."},
+{line:-1, phase:'idle', stack:[], heap:[Fd('heap',"{ name: 'Gayan' }",'← u (still alive)')], micro:[], macro:[], out:["start","end","promise","timeout"],
+ note:"<b>Memory note:</b> the heap object is only reclaimed once <u>nothing</u> references it. <code>u</code> still points to it, so garbage collection leaves it alone."}
+];
+
+/* --- 2. closures: var vs let in loops --- */
+const jsClosureCode = [
+  `<span class="kw">for</span> (<span class="kw">var</span> i = 0; i < 3; i++) {`,
+  `  setTimeout(() => console.log(i), 0);`,
+  `}`,
+  ``,
+  `<span class="kw">for</span> (<span class="kw">let</span> j = 0; j < 3; j++) {`,
+  `  setTimeout(() => console.log(j), 0);`,
+  `}`
+];
+const jsClosureSteps = [
+{line:0, phase:'run', stack:[Fd('stack','Global')], heap:[], micro:[], macro:[], out:[],
+ note:"Two loops that look almost identical — one uses <code>var</code>, one uses <code>let</code>. Watch what each iteration's callback actually captures."},
+{line:1, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"var i — ONE shared binding",'= 3 (final)')], micro:[], macro:[Fd('macro',"cb1: log(i)"),Fd('macro',"cb2: log(i)"),Fd('macro',"cb3: log(i)")], out:[],
+ note:"<code>var</code> is function/global-scoped — <b>all three iterations share the same binding</b>. Each callback just holds a reference to that one box, which ends at value 3 once the loop condition fails."},
+{line:4, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"var i (shared, done)",'= 3'),Fd('heap',"let j — iter 1",'= 0'),Fd('heap',"let j — iter 2",'= 1'),Fd('heap',"let j — iter 3",'= 2')], micro:[], macro:[Fd('macro',"cb1"),Fd('macro',"cb2"),Fd('macro',"cb3"),Fd('macro',"cb4: log(j)"),Fd('macro',"cb5: log(j)"),Fd('macro',"cb6: log(j)")], out:[],
+ note:"<code>let</code> creates a <b>brand-new binding for every iteration</b>. Each callback closes over its own private box — 0, then 1, then 2 — not a shared one."},
+{line:-1, phase:'idle', stack:[], heap:[Fd('heap',"var i (shared)",'= 3'),Fd('heap',"let j × 3 (separate)")], micro:[], macro:[Fd('macro',"cb1"),Fd('macro',"cb2"),Fd('macro',"cb3"),Fd('macro',"cb4"),Fd('macro',"cb5"),Fd('macro',"cb6")], out:[],
+ note:"Call stack empties. Six 0ms timeouts are queued — time to drain the macrotask queue in the order they were registered."},
+{line:-1, phase:'macro', stack:[Fd('stack','cb1, cb2, cb3 → all read the SAME box')], heap:[Fd('heap',"var i (shared)",'= 3')], micro:[], macro:[Fd('macro',"cb4"),Fd('macro',"cb5"),Fd('macro',"cb6")], out:["3","3","3"],
+ note:"The three <code>var</code>-based callbacks all read from the same shared box — by the time they run, it's <b>3</b>. Output: <b>3, 3, 3</b>."},
+{line:-1, phase:'macro', stack:[Fd('stack','cb4, cb5, cb6 → each reads its OWN box')], heap:[], micro:[], macro:[], out:["3","3","3","0","1","2"],
+ note:"The <code>let</code>-based callbacks each read their own private binding — <b>0, 1, 2</b>. This is exactly why <code>let</code> is the fix for the classic 'loop variable in a closure' bug."}
+];
+
+/* --- 3. this binding trap --- */
+const jsThisCode = [
+  `<span class="kw">const</span> obj = { name: <span class="str">'Ada'</span>, getName(){ <span class="kw">return</span> this.name; } };`,
+  ``,
+  `console.log(obj.getName());       <span class="cm">// called AS a method</span>`,
+  ``,
+  `<span class="kw">const</span> fn = obj.getName;`,
+  `console.log(fn());                <span class="cm">// called PLAIN — detached</span>`,
+  ``,
+  `<span class="kw">const</span> bound = obj.getName.bind(obj);`,
+  `console.log(bound());             <span class="cm">// permanently bound</span>`
+];
+const jsThisSteps = [
+{line:0, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }")], micro:[], macro:[], out:[],
+ note:"The object (and its method) live on the heap, same as always."},
+{line:2, phase:'run', stack:[Fd('stack','Global'),Fd('stack','getName()','this = obj')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }")], micro:[], macro:[], out:[],
+ note:"Called as <code>obj.getName()</code> — <b>this binds to whatever is left of the dot</b>, i.e. <code>obj</code>."},
+{line:2, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }")], micro:[], macro:[], out:["Ada"],
+ note:"Frame pops, logs <b>'Ada'</b>."},
+{line:4, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }"),Fd('heap',"fn → same function, no owner")], micro:[], macro:[], out:["Ada"],
+ note:"<code>fn</code> now holds a reference to the function itself, <b>detached from obj</b> — that connection to <code>this</code> is gone."},
+{line:5, phase:'run', stack:[Fd('stack','Global'),Fd('stack','getName()','this = undefined')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }"),Fd('heap',"fn → same function, no owner")], micro:[], macro:[], out:["Ada"],
+ note:"Called plainly as <code>fn()</code> — <b>this is undefined</b> (strict mode) since there's no object left of the dot at all."},
+{line:5, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }"),Fd('heap',"fn → same function, no owner")], micro:[], macro:[], out:["Ada","undefined"],
+ note:"Frame pops, logs <b>'undefined'</b> — reading <code>.name</code> off <code>undefined</code>."},
+{line:7, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"{ name:'Ada', getName(){...} }"),Fd('heap',"bound → getName, this PERMANENTLY = obj")], micro:[], macro:[], out:["Ada","undefined"],
+ note:"<code>.bind(obj)</code> creates a brand-new function with <b>this permanently locked to obj</b> — no matter how it's called later."},
+{line:8, phase:'run', stack:[Fd('stack','Global')], heap:[Fd('heap',"bound → this PERMANENTLY = obj")], micro:[], macro:[], out:["Ada","undefined","Ada"],
+ note:"<b>this depends on the call-site, not the definition site</b> — except when <code>bind()</code> fixes it forever. Final output: Ada, undefined, Ada."}
+];
+
+/* --- 4. nested microtasks vs macrotask --- */
+const jsAsyncCode = [
+  `console.log(<span class="str">'a'</span>);`,
+  ``,
+  `setTimeout(() => console.log(<span class="str">'timeout'</span>), 0);`,
+  ``,
+  `Promise.resolve().then(() => {`,
+  `  console.log(<span class="str">'p1'</span>);`,
+  `  Promise.resolve().then(() => console.log(<span class="str">'p2'</span>));`,
+  `});`,
+  ``,
+  `console.log(<span class="str">'b'</span>);`
+];
+const jsAsyncSteps = [
+{line:0, phase:'run', stack:[Fd('stack','Global')], heap:[], micro:[], macro:[], out:["a"],
+ note:"Sync code first. Logs <b>'a'</b>."},
+{line:2, phase:'run', stack:[Fd('stack','Global')], heap:[], micro:[], macro:[Fd('macro',"() => log('timeout')")], out:["a"],
+ note:"<code>setTimeout</code> queues onto the <b>macrotask</b> queue."},
+{line:4, phase:'run', stack:[Fd('stack','Global')], heap:[], micro:[Fd('micro',"then#1 → log('p1'); queues then#2")], macro:[Fd('macro',"() => log('timeout')")], out:["a"],
+ note:"The outer <code>.then()</code> queues onto the <b>microtask</b> queue — a higher-priority, separate lane."},
+{line:9, phase:'run', stack:[Fd('stack','Global')], heap:[], micro:[Fd('micro',"then#1 → log('p1'); queues then#2")], macro:[Fd('macro',"() => log('timeout')")], out:["a","b"],
+ note:"Last sync line. Logs <b>'b'</b>."},
+{line:-1, phase:'idle', stack:[], heap:[], micro:[Fd('micro',"then#1")], macro:[Fd('macro',"timeout cb")], out:["a","b"],
+ note:"Call stack empties — the engine checks the microtask queue before touching any macrotask."},
+{line:-1, phase:'micro', stack:[Fd('stack','then#1 callback')], heap:[], micro:[Fd('micro',"then#2 → log('p2')  ← just queued")], macro:[Fd('macro',"timeout cb")], out:["a","b","p1"],
+ note:"then#1 runs, logs <b>'p1'</b> — and while running, it queues <b>another</b> microtask (then#2). It still runs before any macrotask, because the queue drains until truly empty."},
+{line:-1, phase:'micro', stack:[Fd('stack','then#2 callback')], heap:[], micro:[], macro:[Fd('macro',"timeout cb")], out:["a","b","p1","p2"],
+ note:"then#2 runs, logs <b>'p2'</b>. Microtask queue is finally empty."},
+{line:-1, phase:'macro', stack:[Fd('stack','timeout callback')], heap:[], micro:[], macro:[], out:["a","b","p1","p2","timeout"],
+ note:"<b>Only now</b> does the loop reach the macrotask — logs <b>'timeout'</b>, last. Final order: a, b, p1, p2, timeout."}
+];
+
+const jsScenarios = [
+  {key:'core',     label:'Call stack, heap & event loop',       code:jsCoreCode,    steps:jsCoreSteps,    phases:jsPhaseDefs},
+  {key:'closures', label:'Closures: var vs let in loops',       code:jsClosureCode, steps:jsClosureSteps, phases:jsPhaseDefs},
+  {key:'this',     label:"The this binding trap",               code:jsThisCode,    steps:jsThisSteps,    phases:jsPhaseDefs},
+  {key:'async',    label:'Nested microtasks vs a macrotask',    code:jsAsyncCode,   steps:jsAsyncSteps,   phases:jsPhaseDefs}
+];
+
+/* ================= NODE SCENARIOS ================= */
+
+/* --- 1. core: full event loop + API request + thread pool --- */
+const nodeCoreCode = [
+  `console.log(<span class="str">'1: start'</span>);`,
+  ``,
+  `https.get(<span class="str">'https://api.example.com/data'</span>, (res) => {`,
+  `  console.log(<span class="str">'6: API response received'</span>);`,
+  `});`,
+  ``,
+  `fs.readFile(<span class="str">'file.txt'</span>, () => {`,
+  `  console.log(<span class="str">'7: file read complete'</span>);`,
+  `});`,
+  ``,
+  `setTimeout(() => console.log(<span class="str">'8: timeout'</span>), 0);`,
+  `setImmediate(() => console.log(<span class="str">'9: immediate'</span>));`,
+  ``,
+  `Promise.resolve().then(() => console.log(<span class="str">'3: promise'</span>));`,
+  `process.nextTick(() => console.log(<span class="str">'2: nextTick'</span>));`,
+  ``,
+  `console.log(<span class="str">'4: end of sync code'</span>);`
+];
+const nodeCoreSteps = [
+{line:0, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["1: start"],
+ note:"Synchronous start. <code>console.log('1: start')</code> runs immediately on the single JS thread."},
+{line:2, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[], out:["1: start"],
+ note:"<code>https.get()</code> is handed to the <b>OS kernel</b> (epoll/kqueue/IOCP) — network sockets are natively async, no thread pool needed."},
+{line:6, phase:'idle', stack:[Fd('stack','Global')], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[], out:["1: start"],
+ note:"<code>fs.readFile()</code> is blocking at the OS level, so libuv assigns it to <b>Worker 1</b> in the 4-thread pool."},
+{line:9, phase:'idle', stack:[Fd('stack','Global')], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[Fd('macro',"setTimeout → Timers")], out:["1: start"],
+ note:"<code>setTimeout(fn, 0)</code> is registered for the <b>Timers queue</b>."},
+{line:10, phase:'idle', stack:[Fd('stack','Global')], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start"],
+ note:"<code>setImmediate()</code> is registered for the <b>Check phase</b> — right after Poll."},
+{line:12, phase:'idle', stack:[Fd('stack','Global')], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[Fd('micro',"() => log('3: promise')")], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start"],
+ note:"<code>.then()</code> queues on the <b>Promise microtask queue</b>."},
+{line:13, phase:'idle', stack:[Fd('stack','Global')], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[Fd('tick',"() => log('2: nextTick')")], micro:[Fd('micro',"() => log('3: promise')")], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start"],
+ note:"<code>process.nextTick()</code> queues into its own <b>highest-priority</b> lane."},
+{line:15, phase:'idle', stack:[Fd('stack','Global')], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[Fd('tick',"() => log('2: nextTick')")], micro:[Fd('micro',"() => log('3: promise')")], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code"],
+ note:"Last sync line. All six async ops are dispatched — none of their callbacks has run yet."},
+{line:-1, phase:'idle', stack:[], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[Fd('tick',"() => log('2: nextTick')")], micro:[Fd('micro',"() => log('3: promise')")], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code"],
+ note:"<b>Call stack empty.</b> Node drains nextTick, then Promise microtasks, before the loop's first phase even begins."},
+{line:-1, phase:'idle', stack:[Fd('stack',"nextTick callback")], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[Fd('micro',"() => log('3: promise')")], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code","2: nextTick"],
+ note:"nextTick queue drains first — logs <b>'2: nextTick'</b>."},
+{line:-1, phase:'idle', stack:[Fd('stack',"promise callback")], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[Fd('macro',"setTimeout → Timers"),Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code","2: nextTick","3: promise"],
+ note:"Then the Promise microtask queue drains — logs <b>'3: promise'</b>. Only now does the loop enter its first phase."},
+{line:-1, phase:'timers', stack:[Fd('stack',"setTimeout callback")], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout"],
+ note:"<b>Timers phase.</b> The 0ms timer has elapsed — logs <b>'8: timeout'</b>."},
+{line:-1, phase:'pending', stack:[], pool:[Fd('pool',"readFile('file.txt')")], poolW:[1,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout"],
+ note:"<b>Pending callbacks phase.</b> Handles deferred system-level callbacks — nothing to run here."},
+{line:6, phase:'poll', stack:[Fd('stack',"fs.readFile callback")], pool:[], poolW:[0,0,0,0], kernel:[Fd('pool',"GET /data — pending")], tick:[], micro:[], macro:[Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout","7: file read complete"],
+ note:"<b>Poll phase.</b> Worker 1 finishes reading the file — logs <b>'7: file read complete'</b>. Worker is free again."},
+{line:2, phase:'poll', stack:[Fd('stack',"https.get callback")], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[Fd('macro',"setImmediate → Check")], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout","7: file read complete","6: API response received"],
+ note:"Still Poll phase — the kernel signals the response arrived, logs <b>'6: API response received'</b>. Real-world order vs. the file read is non-deterministic."},
+{line:-1, phase:'check', stack:[Fd('stack',"setImmediate callback")], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout","7: file read complete","6: API response received","9: immediate"],
+ note:"<b>Check phase.</b> Poll is empty, so the loop moves straight here — logs <b>'9: immediate'</b>."},
+{line:-1, phase:'close', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout","7: file read complete","6: API response received","9: immediate"],
+ note:"<b>Close callbacks phase.</b> Runs handlers like <code>socket.on('close', ...)</code> — empty here."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["1: start","4: end of sync code","2: nextTick","3: promise","8: timeout","7: file read complete","6: API response received","9: immediate"],
+ note:"No pending timers, I/O, or handles remain — the process exits. Final order: sync → nextTick → promises → timers → poll (I/O) → check → close."}
+];
+
+/* --- 2. process.nextTick starvation --- */
+const nodeTickCode = [
+  `function starve() {`,
+  `  process.nextTick(starve);`,
+  `}`,
+  `starve();`,
+  ``,
+  `setTimeout(() => console.log(<span class="str">'this may run very late'</span>), 0);`,
+  ``,
+  `console.log(<span class="str">'script end'</span>);`
+];
+const nodeTickSteps = [
+{line:3, phase:'idle', stack:[Fd('stack','Global'),Fd('stack','starve()')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:[],
+ note:"<code>starve()</code> is called for the first time."},
+{line:1, phase:'idle', stack:[Fd('stack','Global'),Fd('stack','starve()')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[Fd('tick',"() => starve()")], micro:[], macro:[], out:[],
+ note:"Inside, it immediately re-queues itself via <code>process.nextTick()</code> — before it even returns."},
+{line:5, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[Fd('tick',"() => starve()")], micro:[], macro:[Fd('macro',"setTimeout → Timers")], out:[],
+ note:"A normal timer is queued too — this is the callback we're waiting to see fire."},
+{line:7, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[Fd('tick',"() => starve()")], micro:[], macro:[Fd('macro',"setTimeout → Timers")], out:["script end"],
+ note:"Last sync line runs, logs <b>'script end'</b>."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[Fd('tick',"() => starve()")], micro:[], macro:[Fd('macro',"setTimeout → Timers")], out:["script end"],
+ note:"Call stack is empty. As always, Node checks the <code>process.nextTick</code> queue before doing anything else."},
+{line:1, phase:'idle', stack:[Fd('stack','starve() (from nextTick)')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[Fd('macro',"setTimeout → Timers")], out:["script end"],
+ note:"The queued <code>starve()</code> runs — and immediately calls <code>process.nextTick(starve)</code> <b>again</b>."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[Fd('tick',"() => starve()  ⟲ requeued")], micro:[], macro:[Fd('macro',"setTimeout → Timers")], out:["script end"],
+ note:"The nextTick queue refills itself <b>before Node ever sees it as empty</b>. This repeats forever — the loop can never move on to check the Timers phase."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[Fd('tick',"() => starve()  ⟲ requeued (again…)")], micro:[], macro:[Fd('macro',"setTimeout → still waiting…")], out:["script end"],
+ note:"<b>Result: the setTimeout callback is starved indefinitely.</b> This is a real production bug pattern — any recursive process.nextTick call can block all I/O and timers from ever running."}
+];
+
+/* --- 3. readFileSync blocks the single thread --- */
+const nodeBlockCode = [
+  `console.log(<span class="str">'request A: start'</span>);`,
+  `fs.readFileSync(<span class="str">'big-file.txt'</span>);   <span class="cm">// synchronous — BLOCKS</span>`,
+  `console.log(<span class="str">'request A: done'</span>);`,
+  ``,
+  `console.log(<span class="str">'request B: start'</span>);  <span class="cm">// has to wait its turn</span>`
+];
+const nodeBlockSteps = [
+{line:0, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["request A: start"],
+ note:"First request logs its start."},
+{line:1, phase:'idle', stack:[Fd('stack','Global'),Fd('stack','readFileSync()','BLOCKING')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["request A: start"],
+ note:"<code>readFileSync</code> reads the whole file synchronously, on the <b>same single thread</b> as everything else. Nothing else can run until it returns."},
+{line:1, phase:'idle', stack:[Fd('stack','Global'),Fd('stack','readFileSync()','still blocking…')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["request A: start"],
+ note:"While this runs, the call stack is occupied. Any other queued work — timers, other requests — simply has to wait."},
+{line:2, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["request A: start","request A: done"],
+ note:"<code>readFileSync</code> finally returns and pops off the stack."},
+{line:4, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["request A: start","request A: done","request B: start"],
+ note:"Only <b>now</b> can request B's code even begin — it was fully blocked for the entire duration of request A's file read."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["request A: start","request A: done","request B: start"],
+ note:"Compare this to async <code>fs.readFile(cb)</code>: that version hands the read to the <b>thread pool</b> immediately and returns control right away — request B would never have had to wait."}
+];
+
+/* --- 4. unhandled promise rejection in an async handler --- */
+const nodeRejectCode = [
+  `async function getUser(req, res) {`,
+  `  const user = await db.find(req.query.id);   <span class="cm">// rejects!</span>`,
+  `  res.json(user);`,
+  `}`,
+  ``,
+  `getUser(req, res);`,
+  ``,
+  `console.log(<span class="str">'server still running'</span>);`
+];
+const nodeRejectSteps = [
+{line:5, phase:'idle', stack:[Fd('stack','Global'),Fd('stack','getUser(req, res)')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:[],
+ note:"<code>getUser()</code> is called — an async function, so it starts running synchronously up to its first <code>await</code>."},
+{line:1, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[Fd('micro',"awaiting db.find()…")], macro:[], out:[],
+ note:"<code>await</code> suspends <code>getUser</code> here and hands control back immediately — the rest of the script keeps running while this waits."},
+{line:7, phase:'idle', stack:[Fd('stack','Global')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[Fd('micro',"awaiting db.find()…")], macro:[], out:["server still running"],
+ note:"Sync code continues — the server isn't blocked by the pending await."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[Fd('micro',"awaiting db.find()…")], macro:[], out:["server still running"],
+ note:"Call stack empties. Now imagine <code>db.find()</code> rejects — no network, bad query, whatever the reason."},
+{line:1, phase:'micro', stack:[Fd('stack','getUser() resumes — throws')], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["server still running"],
+ note:"<b>There's no try/catch around the await.</b> The rejection propagates out of <code>getUser()</code> as a rejected promise that nothing is listening to."},
+{line:-1, phase:'idle', stack:[], pool:[], poolW:[0,0,0,0], kernel:[], tick:[], micro:[], macro:[], out:["server still running"],
+ note:"<b>Result: an unhandled promise rejection.</b> <code>res.json(user)</code> never runs, the client request hangs, and depending on your Node version's <code>--unhandled-rejections</code> setting, this can even crash the whole process. Fix: wrap the await in try/catch and call <code>next(err)</code>, or use a wrapper like <code>express-async-errors</code>."}
+];
+
+const nodeScenarios = [
+  {key:'core',   label:'Full event loop + API request',        code:nodeCoreCode,   steps:nodeCoreSteps,   phases:nodePhaseDefs},
+  {key:'tick',   label:'process.nextTick starvation',           code:nodeTickCode,   steps:nodeTickSteps,   phases:nodePhaseDefs},
+  {key:'block',  label:'readFileSync blocks everything',        code:nodeBlockCode,  steps:nodeBlockSteps,  phases:nodePhaseDefs},
+  {key:'reject', label:'Unhandled rejection in an async route', code:nodeRejectCode, steps:nodeRejectSteps, phases:nodePhaseDefs}
+];
+
+const demoState = {
+  js:   { scenarios: jsScenarios,   scenarioIndex:0, i:0, playing:false, timer:null },
+  node: { scenarios: nodeScenarios, scenarioIndex:0, i:0, playing:false, timer:null }
+};
+function curScenario(kind){ const s = demoState[kind]; return s.scenarios[s.scenarioIndex]; }
+
+function buildDemoMarkup(kind){
+  const isNode = kind==='node';
+  const scenarios = demoState[kind].scenarios;
+  const activeIdx = demoState[kind].scenarioIndex;
+  const chips = scenarios.map((sc,idx)=>
+    `<button class="scenario-chip${idx===activeIdx?' active':''}" data-kind="${kind}" data-idx="${idx}">${sc.label}</button>`
+  ).join('');
+  return `
+    <div class="scenario-picker">${chips}</div>
+    <div class="dp-layout">
+      <div class="dp-code" id="dpCode-${kind}"></div>
+      <div>
+        <div class="dp-ring" id="dpRing-${kind}"></div>
+        <div class="dp-row ${isNode?'three':''}">
+          <div class="dp-card"><h4><span class="dp-dot" style="background:var(--accent)"></span>Call stack</h4><div class="dp-items" id="dpStack-${kind}"></div></div>
+          ${isNode ? `
+          <div class="dp-card"><h4><span class="dp-dot" style="background:var(--pool)"></span>Thread pool</h4><div class="dp-workers" id="dpWorkers-${kind}"></div><div class="dp-items" id="dpPool-${kind}"></div></div>
+          <div class="dp-card"><h4><span class="dp-dot" style="background:var(--node)"></span>OS kernel — network</h4><div class="dp-items" id="dpKernel-${kind}"></div></div>` : `
+          <div class="dp-card"><h4><span class="dp-dot" style="background:var(--node)"></span>Heap (memory)</h4><div class="dp-items" id="dpHeap-${kind}"></div></div>`}
+        </div>
+        <div class="dp-row ${isNode?'three':''}">
+          ${isNode ? `<div class="dp-card"><h4><span class="dp-dot" style="background:var(--tick)"></span>nextTick queue</h4><div class="dp-items" id="dpTick-${kind}"></div></div>` : ''}
+          <div class="dp-card"><h4><span class="dp-dot" style="background:var(--micro)"></span>Microtask queue</h4><div class="dp-items" id="dpMicro-${kind}"></div></div>
+          <div class="dp-card"><h4><span class="dp-dot" style="background:var(--js)"></span>${isNode?'Timers / check':'Macrotask queue'}</h4><div class="dp-items" id="dpMacro-${kind}"></div></div>
+        </div>
+        <div class="dp-console" id="dpConsole-${kind}"></div>
+        <div class="dp-note" id="dpNote-${kind}"></div>
+        <div class="dp-progress"><div class="dp-progress-fill" id="dpProgress-${kind}"></div></div>
+        <div class="dp-controls">
+          <button id="dpPrev-${kind}">Back</button>
+          <button id="dpNext-${kind}" class="primary">Next</button>
+          <button id="dpPlay-${kind}">▶ Play</button>
+          <button id="dpReset-${kind}">Reset</button>
+          <span class="dp-step-count" id="dpCount-${kind}"></span>
+        </div>
+        <div class="dp-legend">
+          <span><i style="background:var(--accent)"></i>call stack</span>
+          ${isNode ? `<span><i style="background:var(--pool)"></i>thread pool (fs/dns/crypto)</span><span><i style="background:var(--node)"></i>OS kernel (network)</span><span><i style="background:var(--tick)"></i>nextTick</span>` : `<span><i style="background:var(--node)"></i>heap</span>`}
+          <span><i style="background:var(--micro)"></i>microtasks</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function switchScenario(kind, idx){
+  stopDemo(kind);
+  demoState[kind].scenarioIndex = idx;
+  demoState[kind].i = 0;
+  renderSections();
+}
+
+function initDemo(kind){
+  const s = demoState[kind];
+  s.i = 0; s.playing = false; clearInterval(s.timer);
+  const sc = curScenario(kind);
+  document.getElementById(`dpCode-${kind}`).innerHTML = sc.code.map((l,idx)=>`<div class="dp-code-line" data-i="${idx}">${l||'&nbsp;'}</div>`).join('');
+  renderDemo(kind);
+  document.querySelectorAll(`.scenario-chip[data-kind="${kind}"]`).forEach(btn=>{
+    btn.onclick = ()=> switchScenario(kind, Number(btn.dataset.idx));
+  });
+  document.getElementById(`dpPrev-${kind}`).onclick = ()=>{ stopDemo(kind); stepDemo(kind,-1); };
+  document.getElementById(`dpNext-${kind}`).onclick = ()=>{ stopDemo(kind); stepDemo(kind,1); };
+  document.getElementById(`dpReset-${kind}`).onclick = ()=>{ stopDemo(kind); s.i=0; renderDemo(kind); };
+  document.getElementById(`dpPlay-${kind}`).onclick = ()=> s.playing ? stopDemo(kind) : startDemo(kind);
+}
+
+function stepDemo(kind, dir){
+  const s = demoState[kind];
+  const steps = curScenario(kind).steps;
+  s.i = Math.max(0, Math.min(steps.length-1, s.i+dir));
+  renderDemo(kind);
+  if(s.i === steps.length-1) stopDemo(kind);
+}
+function startDemo(kind){
+  const s = demoState[kind];
+  s.playing = true;
+  document.getElementById(`dpPlay-${kind}`).textContent = '⏸ Pause';
+  s.timer = setInterval(()=>{
+    const steps = curScenario(kind).steps;
+    if(s.i >= steps.length-1){ stopDemo(kind); return; }
+    stepDemo(kind, 1);
+  }, 2300);
+}
+function stopDemo(kind){
+  const s = demoState[kind];
+  s.playing = false;
+  const btn = document.getElementById(`dpPlay-${kind}`);
+  if(btn) btn.textContent = '▶ Play';
+  clearInterval(s.timer);
+}
+
+function renderDemo(kind){
+  const s = demoState[kind];
+  const sc = curScenario(kind);
+  const step = sc.steps[s.i];
+  const isNode = kind==='node';
+
+  document.querySelectorAll(`#dpCode-${kind} .dp-code-line`).forEach(el=>{
+    el.classList.toggle('active', Number(el.dataset.i) === step.line);
+  });
+
+  document.getElementById(`dpRing-${kind}`).innerHTML = sc.phases.map(p=>{
+    const on = p.k === step.phase;
+    const colorMap = {run:'accent',idle:'sub',micro:'micro',macro:'js',timers:'js',pending:'pool',poll:'node',check:'tick',close:'micro'};
+    const varName = colorMap[p.k] || 'accent';
+    return `<div class="dp-phase${on?' on':''}" style="${on?`background:var(--${varName});color:#0D1013;`:''}">${p.label}</div>`;
+  }).join('');
+
+  document.getElementById(`dpStack-${kind}`).innerHTML = step.stack.length ? step.stack.join('') : dpEmpty;
+  document.getElementById(`dpMicro-${kind}`).innerHTML = step.micro.length ? step.micro.join('') : dpEmpty;
+  document.getElementById(`dpMacro-${kind}`).innerHTML = step.macro.length ? step.macro.join('') : dpEmpty;
+
+  if(isNode){
+    document.getElementById(`dpPool-${kind}`).innerHTML = step.pool.length ? step.pool.join('') : dpEmpty;
+    document.getElementById(`dpWorkers-${kind}`).innerHTML = step.poolW.map((b,idx)=>`<div class="dp-worker ${b?'busy':''}">W${idx+1}${b?' •':''}</div>`).join('');
+    document.getElementById(`dpKernel-${kind}`).innerHTML = step.kernel.length ? step.kernel.join('') : dpEmpty;
+    document.getElementById(`dpTick-${kind}`).innerHTML = step.tick.length ? step.tick.join('') : dpEmpty;
+  } else {
+    document.getElementById(`dpHeap-${kind}`).innerHTML = step.heap.length ? step.heap.join('') : dpEmpty;
+  }
+
+  document.getElementById(`dpConsole-${kind}`).innerHTML = step.out.length
+    ? step.out.map((o,idx)=>`<div class="r${idx===step.out.length-1?' new':''}">&gt; <span>${o}</span></div>`).join('')
+    : '<div class="r" style="opacity:.5">console output will appear here</div>';
+
+  document.getElementById(`dpNote-${kind}`).innerHTML = step.note;
+  document.getElementById(`dpCount-${kind}`).textContent = `Step ${s.i+1} / ${sc.steps.length}`;
+  document.getElementById(`dpProgress-${kind}`).style.width = `${((s.i+1)/sc.steps.length)*100}%`;
+  document.getElementById(`dpPrev-${kind}`).disabled = s.i===0;
+  document.getElementById(`dpNext-${kind}`).disabled = s.i===sc.steps.length-1;
+}
+/* ================= END DEMO PLAYER ================= */
+
+renderAll();
+</script>
+</body>
+</html>
